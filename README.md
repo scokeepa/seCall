@@ -313,7 +313,7 @@ For auto-sync on session start/end:
 
 This project is built on ideas from:
 
-- **[LLM Wiki](https://github.com/tobi/llm-wiki)** — The pattern of using LLMs to incrementally build and maintain a persistent, interlinked knowledge base from raw sources. seCall's two-layer vault architecture (raw sessions + AI-generated wiki) directly implements this concept.
+- **[LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)** by Andrej Karpathy — The pattern of using LLMs to incrementally build and maintain a persistent, interlinked knowledge base from raw sources. seCall's two-layer vault architecture (raw sessions + AI-generated wiki) directly implements this concept. See also [Tobi Lütke's implementation](https://github.com/tobi/llm-wiki).
 - **[qmd](https://github.com/tobi/qmd)** by Tobi Lütke — A local search engine for markdown files with hybrid BM25/vector search. seCall's search pipeline (FTS5 BM25, vector embeddings, Reciprocal Rank Fusion with k=60) was designed with reference to qmd's approach.
 
 This project was developed using AI coding agents (Claude Code, Codex) orchestrated via [tunaFlow](https://github.com/hang-in/tunaFlow), a multi-agent workflow platform.
@@ -607,7 +607,7 @@ Claude Code 설정 (`~/.claude/settings.json`)에 추가:
 
 이 프로젝트는 다음 아이디어와 프로젝트를 기반으로 합니다:
 
-- **[LLM Wiki](https://github.com/tobi/llm-wiki)** — LLM을 사용하여 원본 소스로부터 지속적이고 상호 연결된 지식 베이스를 점진적으로 구축하는 패턴. seCall의 2계층 볼트 아키텍처(원본 세션 + AI 생성 위키)는 이 컨셉을 직접 구현한 것입니다.
+- **[LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)** (Andrej Karpathy) — LLM을 사용하여 원본 소스로부터 지속적이고 상호 연결된 지식 베이스를 점진적으로 구축하는 패턴. seCall의 2계층 볼트 아키텍처(원본 세션 + AI 생성 위키)는 이 컨셉을 직접 구현한 것입니다. [Tobi Lütke의 구현](https://github.com/tobi/llm-wiki)도 참고.
 - **[qmd](https://github.com/tobi/qmd)** (Tobi Lütke) — 마크다운 파일을 위한 로컬 검색 엔진으로, BM25/벡터 하이브리드 검색을 지원합니다. seCall의 검색 파이프라인(FTS5 BM25, 벡터 임베딩, RRF k=60)은 qmd의 접근 방식을 참고하여 설계되었습니다.
 
 이 프로젝트는 AI 코딩 에이전트(Claude Code, Codex)를 [tunaFlow](https://github.com/hang-in/tunaFlow) 멀티에이전트 워크플로우 플랫폼으로 오케스트레이션하여 개발되었습니다.
