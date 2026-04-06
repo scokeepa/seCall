@@ -6,7 +6,7 @@ use anyhow::Result;
 /// If `claude` is not in PATH or the call fails, returns the original query unchanged.
 pub fn expand_query(query: &str) -> Result<String> {
     if !command_exists("claude") {
-        eprintln!("⚠ claude not found, using original query.");
+        tracing::warn!("claude not found, using original query");
         return Ok(query.to_string());
     }
 
@@ -24,13 +24,13 @@ pub fn expand_query(query: &str) -> Result<String> {
     if output.status.success() {
         let expanded = String::from_utf8_lossy(&output.stdout).trim().to_string();
         if !expanded.is_empty() {
-            eprintln!("✓ Query expanded: {query} → {expanded}");
+            tracing::info!(original = query, expanded = %expanded, "query expanded");
             Ok(format!("{query} {expanded}"))
         } else {
             Ok(query.to_string())
         }
     } else {
-        eprintln!("⚠ Query expansion failed, using original query.");
+        tracing::warn!("query expansion failed, using original query");
         Ok(query.to_string())
     }
 }

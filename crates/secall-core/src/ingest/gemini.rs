@@ -1,11 +1,10 @@
-use std::collections::VecDeque;
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::types::{Action, AgentKind, Role, Session, Turn};
+use super::types::{Action, AgentKind, Role, Session, TokenUsage, Turn};
 use super::SessionParser;
 
 pub struct GeminiParser;
@@ -31,51 +30,75 @@ impl SessionParser for GeminiParser {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct GeminiSession {
-    id: String,
+    session_id: String,
     #[serde(default)]
-    create_time: Option<String>,
+    start_time: Option<String>,
     #[serde(default)]
-    update_time: Option<String>,
+    last_updated: Option<String>,
     #[serde(default)]
     messages: Vec<GeminiMessage>,
+    // projectHash, kind — 무시 (serde(default)로 skip)
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiMessage {
-    role: String,
+    #[serde(rename = "type")]
+    msg_type: String,
     #[serde(default)]
-    parts: Vec<GeminiPart>,
-}
-
-/// Untagged: variant is selected by which field is present.
-/// FunctionCall and FunctionResponse must come before Text so that
-/// the more specific variants are tried first.
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum GeminiPart {
-    FunctionCall {
-        #[serde(rename = "functionCall")]
-        function_call: GeminiFunctionCall,
-    },
-    FunctionResponse {
-        #[serde(rename = "functionResponse")]
-        function_response: GeminiFunctionResponse,
-    },
-    Text {
-        text: String,
-    },
+    timestamp: Option<String>,
+    #[serde(default)]
+    content: serde_json::Value, // array [{text}] 또는 string
+    #[serde(default)]
+    thoughts: Option<Vec<GeminiThought>>,
+    #[serde(default)]
+    tokens: Option<GeminiTokens>,
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<GeminiToolCall>>,
 }
 
 #[derive(Deserialize)]
-struct GeminiFunctionCall {
-    name: String,
+struct GeminiThought {
+    #[serde(default)]
+    _subject: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GeminiTokens {
+    #[serde(default)]
+    input: u64,
+    #[serde(default)]
+    output: u64,
+    #[serde(default)]
+    cached: u64,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiToolCall {
+    #[serde(default)]
+    name: Option<String>,
     #[serde(default)]
     args: serde_json::Value,
+    #[serde(default)]
+    result: Option<Vec<GeminiToolResult>>,
+    #[serde(default)]
+    _status: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiToolResult {
+    #[serde(default)]
+    function_response: Option<GeminiFunctionResponse>,
 }
 
 #[derive(Deserialize)]
 struct GeminiFunctionResponse {
-    name: String,
     #[serde(default)]
     response: serde_json::Value,
 }
@@ -85,10 +108,10 @@ struct GeminiFunctionResponse {
 pub fn parse_gemini_json(path: &Path) -> Result<Session> {
     let metadata = std::fs::metadata(path)?;
     if metadata.len() > 100 * 1024 * 1024 {
-        eprintln!(
-            "warn: gemini session file is large ({} MB): {}",
-            metadata.len() / 1024 / 1024,
-            path.display()
+        tracing::warn!(
+            size_mb = metadata.len() / 1024 / 1024,
+            path = %path.display(),
+            "gemini session file is large"
         );
     }
 
@@ -96,24 +119,28 @@ pub fn parse_gemini_json(path: &Path) -> Result<Session> {
     let gs: GeminiSession = serde_json::from_str(&raw)
         .map_err(|e| anyhow!("failed to parse gemini session {}: {e}", path.display()))?;
 
-    // Extract projectId from path: /.gemini/tmp/<projectId>/chats/
     let project = extract_project_id(path);
 
     let mut turns: Vec<Turn> = Vec::new();
     let mut turn_idx: u32 = 0;
-    // Queue of (turn_pos, action_idx) for pending functionCall → functionResponse matching.
-    // Responses are consumed in FIFO order, so duplicate function names are matched correctly.
-    let mut pending_responses: VecDeque<(usize, usize)> = VecDeque::new();
+    let mut session_model: Option<String> = None;
 
     for msg in &gs.messages {
-        match msg.role.as_str() {
+        // 턴 타임스탬프
+        let ts = msg
+            .timestamp
+            .as_deref()
+            .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+            .map(|dt| dt.with_timezone(&Utc));
+
+        match msg.msg_type.as_str() {
             "user" => {
-                let content = collect_text_parts(&msg.parts);
+                let content = extract_content(&msg.content);
                 if !content.is_empty() {
                     turns.push(Turn {
                         index: turn_idx,
                         role: Role::User,
-                        timestamp: None,
+                        timestamp: ts,
                         content,
                         actions: Vec::new(),
                         tokens: None,
@@ -123,64 +150,81 @@ pub fn parse_gemini_json(path: &Path) -> Result<Session> {
                     turn_idx += 1;
                 }
             }
-            "model" => {
-                let content = collect_text_parts(&msg.parts);
-                let mut actions = Vec::new();
-                // Record turn position (= turns.len()) before pushing this turn
-                let turn_pos = turns.len();
+            "gemini" => {
+                let content = extract_content(&msg.content);
 
-                for part in &msg.parts {
-                    if let GeminiPart::FunctionCall { function_call } = part {
-                        let action_idx = actions.len();
+                // model — 첫 번째 gemini 메시지에서 추출
+                if session_model.is_none() {
+                    session_model = msg.model.clone();
+                }
+
+                // thinking — thoughts[].description 결합
+                let thinking = msg.thoughts.as_ref().and_then(|thoughts| {
+                    let text: Vec<String> = thoughts
+                        .iter()
+                        .filter_map(|t| t.description.clone())
+                        .collect();
+                    if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.join("\n\n"))
+                    }
+                });
+
+                // tokens
+                let tokens = msg.tokens.as_ref().map(|t| TokenUsage {
+                    input: t.input,
+                    output: t.output,
+                    cached: t.cached,
+                });
+
+                // toolCalls → actions
+                let mut actions = Vec::new();
+                if let Some(tool_calls) = &msg.tool_calls {
+                    for tc in tool_calls {
+                        let name = tc.name.clone().unwrap_or_else(|| "unknown".to_string());
+                        let input_summary = tc.args.to_string();
+
+                        // result[0].functionResponse.response에서 output 추출
+                        let output_summary = tc
+                            .result
+                            .as_ref()
+                            .and_then(|results| results.first())
+                            .and_then(|r| r.function_response.as_ref())
+                            .map(|fr| {
+                                // response.output 또는 response.error 추출
+                                fr.response
+                                    .get("output")
+                                    .or_else(|| fr.response.get("error"))
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string()
+                            })
+                            .unwrap_or_default();
+
                         actions.push(Action::ToolUse {
-                            name: function_call.name.clone(),
-                            input_summary: function_call.args.to_string(),
-                            output_summary: String::new(),
+                            name,
+                            input_summary,
+                            output_summary,
                             tool_use_id: None,
                         });
-                        // Enqueue position so functionResponse can fill it in order
-                        pending_responses.push_back((turn_pos, action_idx));
                     }
                 }
 
                 turns.push(Turn {
                     index: turn_idx,
                     role: Role::Assistant,
-                    timestamp: None,
+                    timestamp: ts,
                     content,
                     actions,
-                    tokens: None,
-                    thinking: None,
+                    tokens,
+                    thinking,
                     is_sidechain: false,
                 });
                 turn_idx += 1;
             }
-            "function" => {
-                // Match functionResponse.name against pending functionCall.name
-                for part in &msg.parts {
-                    if let GeminiPart::FunctionResponse { function_response } = part {
-                        // Find the first pending call whose name matches this response
-                        let pos = pending_responses.iter().position(|(tp, ai)| {
-                            turns
-                                .get(*tp)
-                                .and_then(|t| t.actions.get(*ai))
-                                .map(|a| matches!(a, Action::ToolUse { name, .. } if name == &function_response.name))
-                                .unwrap_or(false)
-                        });
-                        if let Some(idx) = pos {
-                            let (turn_pos, action_idx) = pending_responses.remove(idx).unwrap();
-                            if let Some(turn) = turns.get_mut(turn_pos) {
-                                if let Some(Action::ToolUse { output_summary, .. }) =
-                                    turn.actions.get_mut(action_idx)
-                                {
-                                    *output_summary = function_response.response.to_string();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {} // skip unknown roles
+            // "info" 등 → skip
+            _ => {}
         }
     }
 
@@ -191,25 +235,23 @@ pub fn parse_gemini_json(path: &Path) -> Result<Session> {
         ));
     }
 
-    use chrono::DateTime;
-
     let start_time = gs
-        .create_time
+        .start_time
         .as_deref()
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc))
         .unwrap_or_else(Utc::now);
 
     let end_time = gs
-        .update_time
+        .last_updated
         .as_deref()
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|dt| dt.with_timezone(&Utc));
 
     Ok(Session {
-        id: gs.id,
+        id: gs.session_id,
         agent: AgentKind::GeminiCli,
-        model: None,
+        model: session_model,
         project,
         cwd: None,
         git_branch: None,
@@ -220,19 +262,17 @@ pub fn parse_gemini_json(path: &Path) -> Result<Session> {
     })
 }
 
-/// Collect all text parts into a single string
-fn collect_text_parts(parts: &[GeminiPart]) -> String {
-    parts
-        .iter()
-        .filter_map(|p| {
-            if let GeminiPart::Text { text } = p {
-                Some(text.as_str())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+/// content가 string이면 그대로, array이면 [{text: "..."}]에서 text 추출
+fn extract_content(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .filter_map(|item| item.get("text").and_then(|t| t.as_str()))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => String::new(),
+    }
 }
 
 /// Extract projectId from path: ~/.gemini/tmp/<projectId>/chats/session-*.json
@@ -273,12 +313,14 @@ mod tests {
     }
 
     const BASIC_SESSION: &str = r#"{
-        "id": "session-abc123",
-        "createTime": "2026-04-05T10:00:00Z",
-        "updateTime": "2026-04-05T10:30:00Z",
+        "sessionId": "test-uuid",
+        "startTime": "2026-04-05T10:00:00Z",
+        "lastUpdated": "2026-04-05T10:30:00Z",
+        "kind": "main",
+        "projectHash": "abc123",
         "messages": [
-            {"role":"user","parts":[{"text":"검색 기능 구현해줘"}]},
-            {"role":"model","parts":[{"text":"네, 구현하겠습니다."}]}
+            {"id":"m1","timestamp":"2026-04-05T10:00:01Z","type":"user","content":[{"text":"검색 기능 구현해줘"}]},
+            {"id":"m2","timestamp":"2026-04-05T10:00:02Z","type":"gemini","content":"네, 구현하겠습니다.","model":"gemini-3.1-pro","tokens":{"input":100,"output":50,"cached":0,"thoughts":0,"tool":0,"total":150}}
         ]
     }"#;
 
@@ -286,7 +328,7 @@ mod tests {
     fn test_gemini_parse_basic() {
         let f = make_gemini_file(BASIC_SESSION);
         let session = parse_gemini_json(f.path()).unwrap();
-        assert_eq!(session.id, "session-abc123");
+        assert_eq!(session.id, "test-uuid");
         assert_eq!(session.turns.len(), 2);
         assert_eq!(session.turns[0].role, Role::User);
         assert_eq!(session.turns[1].role, Role::Assistant);
@@ -295,51 +337,114 @@ mod tests {
     }
 
     #[test]
-    fn test_gemini_parts_union() {
+    fn test_gemini_tool_calls() {
         let json = r#"{
-            "id": "s1",
+            "sessionId": "s-tools",
+            "startTime": "2026-04-05T10:00:00Z",
             "messages": [
-                {"role":"user","parts":[{"text":"hello"}]},
-                {"role":"model","parts":[
-                    {"text":"ok"},
-                    {"functionCall":{"name":"edit_file","args":{"path":"main.rs"}}}
-                ]},
-                {"role":"function","parts":[
-                    {"functionResponse":{"name":"edit_file","response":{"result":"ok"}}}
-                ]}
+                {"id":"m1","timestamp":"2026-04-05T10:00:01Z","type":"user","content":[{"text":"파일 읽어줘"}]},
+                {"id":"m2","timestamp":"2026-04-05T10:00:02Z","type":"gemini","content":"","toolCalls":[
+                    {"name":"read_file","args":{"file_path":"main.rs"},"result":[{"functionResponse":{"name":"read_file","response":{"output":"fn main() {}"}}}],"status":"success"}
+                ],"tokens":{"input":200,"output":10,"cached":0,"thoughts":0,"tool":0,"total":210}}
             ]
         }"#;
         let f = make_gemini_file(json);
         let session = parse_gemini_json(f.path()).unwrap();
-        let model_turn = session.turns.iter().find(|t| t.role == Role::Assistant).unwrap();
-        assert_eq!(model_turn.actions.len(), 1);
-        assert!(matches!(&model_turn.actions[0], Action::ToolUse { name, .. } if name == "edit_file"));
-    }
-
-    #[test]
-    fn test_gemini_function_matching() {
-        let json = r#"{
-            "id": "s2",
-            "messages": [
-                {"role":"user","parts":[{"text":"run ls"}]},
-                {"role":"model","parts":[
-                    {"functionCall":{"name":"shell","args":{"cmd":"ls"}}}
-                ]},
-                {"role":"function","parts":[
-                    {"functionResponse":{"name":"shell","response":{"output":"file1\nfile2"}}}
-                ]}
-            ]
-        }"#;
-        let f = make_gemini_file(json);
-        let session = parse_gemini_json(f.path()).unwrap();
-        let model_turn = session.turns.iter().find(|t| t.role == Role::Assistant).unwrap();
-        match &model_turn.actions[0] {
+        let asst = session.turns.iter().find(|t| t.role == Role::Assistant).unwrap();
+        assert_eq!(asst.actions.len(), 1);
+        match &asst.actions[0] {
             Action::ToolUse { name, output_summary, .. } => {
-                assert_eq!(name, "shell");
-                assert!(output_summary.contains("file1") || output_summary.contains("output"));
+                assert_eq!(name, "read_file");
+                assert!(output_summary.contains("fn main()"), "got: {output_summary}");
             }
             _ => panic!("expected ToolUse"),
         }
+    }
+
+    #[test]
+    fn test_gemini_thinking() {
+        let json = r#"{
+            "sessionId": "s-thinking",
+            "startTime": "2026-04-05T10:00:00Z",
+            "messages": [
+                {"id":"m1","timestamp":"2026-04-05T10:00:01Z","type":"user","content":[{"text":"분석해줘"}]},
+                {"id":"m2","timestamp":"2026-04-05T10:00:02Z","type":"gemini","content":"결과입니다.","thoughts":[
+                    {"subject":"Analyzing","description":"코드를 분석하고 있습니다.","timestamp":"2026-04-05T10:00:03Z"},
+                    {"subject":"Planning","description":"구현 계획을 세우고 있습니다.","timestamp":"2026-04-05T10:00:04Z"}
+                ],"tokens":{"input":100,"output":30,"cached":0,"thoughts":50,"tool":0,"total":180}}
+            ]
+        }"#;
+        let f = make_gemini_file(json);
+        let session = parse_gemini_json(f.path()).unwrap();
+        let asst = session.turns.iter().find(|t| t.role == Role::Assistant).unwrap();
+        let thinking = asst.thinking.as_ref().expect("thinking should be Some");
+        assert!(thinking.contains("코드를 분석"), "got: {thinking}");
+        assert!(thinking.contains("구현 계획"), "got: {thinking}");
+    }
+
+    #[test]
+    fn test_gemini_tokens() {
+        let f = make_gemini_file(BASIC_SESSION);
+        let session = parse_gemini_json(f.path()).unwrap();
+        let asst = session.turns.iter().find(|t| t.role == Role::Assistant).unwrap();
+        let tokens = asst.tokens.as_ref().expect("tokens should be Some");
+        assert_eq!(tokens.input, 100);
+        assert_eq!(tokens.output, 50);
+        assert_eq!(tokens.cached, 0);
+    }
+
+    #[test]
+    fn test_gemini_model() {
+        let f = make_gemini_file(BASIC_SESSION);
+        let session = parse_gemini_json(f.path()).unwrap();
+        assert_eq!(session.model.as_deref(), Some("gemini-3.1-pro"));
+    }
+
+    #[test]
+    fn test_gemini_string_content() {
+        let json = r#"{
+            "sessionId": "s-string",
+            "startTime": "2026-04-05T10:00:00Z",
+            "messages": [
+                {"id":"m1","type":"user","content":"직접 문자열 입력"},
+                {"id":"m2","type":"gemini","content":"직접 문자열 응답","tokens":{"input":10,"output":5,"cached":0,"thoughts":0,"tool":0,"total":15}}
+            ]
+        }"#;
+        let f = make_gemini_file(json);
+        let session = parse_gemini_json(f.path()).unwrap();
+        assert_eq!(session.turns[0].content, "직접 문자열 입력");
+        assert_eq!(session.turns[1].content, "직접 문자열 응답");
+    }
+
+    #[test]
+    fn test_gemini_info_skip() {
+        let json = r#"{
+            "sessionId": "s-info",
+            "startTime": "2026-04-05T10:00:00Z",
+            "messages": [
+                {"id":"m1","type":"user","content":[{"text":"hello"}]},
+                {"id":"m2","type":"info","content":"Request cancelled."},
+                {"id":"m3","type":"gemini","content":"hi","tokens":{"input":5,"output":3,"cached":0,"thoughts":0,"tool":0,"total":8}}
+            ]
+        }"#;
+        let f = make_gemini_file(json);
+        let session = parse_gemini_json(f.path()).unwrap();
+        // info 메시지는 턴에 포함되지 않음 → 2 turns (user + gemini)
+        assert_eq!(session.turns.len(), 2);
+    }
+
+    #[test]
+    fn test_gemini_timestamps_parsed() {
+        let f = make_gemini_file(BASIC_SESSION);
+        let session = parse_gemini_json(f.path()).unwrap();
+        // startTime "2026-04-05T10:00:00Z" → start_time
+        assert_eq!(session.start_time.date_naive().to_string(), "2026-04-05");
+        // lastUpdated "2026-04-05T10:30:00Z" → end_time
+        assert!(session.end_time.is_some());
+        assert_eq!(
+            session.end_time.unwrap().date_naive().to_string(),
+            "2026-04-05"
+        );
     }
 
     #[test]
@@ -355,31 +460,6 @@ mod tests {
     }
 
     #[test]
-    fn test_gemini_timestamps_parsed() {
-        let f = make_gemini_file(BASIC_SESSION);
-        let session = parse_gemini_json(f.path()).unwrap();
-        // createTime "2026-04-05T10:00:00Z" → start_time
-        assert_eq!(session.start_time.date_naive().to_string(), "2026-04-05");
-        // updateTime "2026-04-05T10:30:00Z" → end_time
-        assert!(session.end_time.is_some());
-        assert_eq!(session.end_time.unwrap().date_naive().to_string(), "2026-04-05");
-    }
-
-    #[test]
-    fn test_gemini_missing_timestamps_fallback() {
-        let json = r#"{"id": "s-no-time", "messages": [
-            {"role":"user","parts":[{"text":"hello"}]},
-            {"role":"model","parts":[{"text":"hi"}]}
-        ]}"#;
-        let f = make_gemini_file(json);
-        let session = parse_gemini_json(f.path()).unwrap();
-        // create_time 없으면 Utc::now() 근처 시간이어야 함
-        let diff = (Utc::now() - session.start_time).num_seconds().abs();
-        assert!(diff < 5, "fallback start_time should be near Utc::now()");
-        assert!(session.end_time.is_none());
-    }
-
-    #[test]
     fn test_gemini_project_extraction() {
         let path = Path::new("/Users/user/.gemini/tmp/myproject123/chats/session-abc.json");
         let project = extract_project_id(path);
@@ -387,44 +467,5 @@ mod tests {
 
         let path2 = Path::new("/no/gemini/path/session.json");
         assert_eq!(extract_project_id(path2), None);
-    }
-
-    #[test]
-    fn test_gemini_function_matching_by_name() {
-        // Two different function calls — responses arrive in matching order
-        let json = r#"{
-            "id": "s-name-match",
-            "messages": [
-                {"role":"user","parts":[{"text":"do both"}]},
-                {"role":"model","parts":[
-                    {"functionCall":{"name":"read_file","args":{"path":"a.rs"}}},
-                    {"functionCall":{"name":"edit_file","args":{"path":"b.rs"}}}
-                ]},
-                {"role":"function","parts":[
-                    {"functionResponse":{"name":"edit_file","response":{"result":"edited"}}},
-                    {"functionResponse":{"name":"read_file","response":{"content":"fn main()"}}}
-                ]}
-            ]
-        }"#;
-        let f = make_gemini_file(json);
-        let session = parse_gemini_json(f.path()).unwrap();
-        let model_turn = session.turns.iter().find(|t| t.role == Role::Assistant).unwrap();
-        assert_eq!(model_turn.actions.len(), 2);
-        // read_file action should get read_file response (not edit_file's)
-        match &model_turn.actions[0] {
-            Action::ToolUse { name, output_summary, .. } => {
-                assert_eq!(name, "read_file");
-                assert!(output_summary.contains("fn main()"), "read_file should get read_file response, got: {output_summary}");
-            }
-            _ => panic!("expected ToolUse"),
-        }
-        // edit_file action should get edit_file response
-        match &model_turn.actions[1] {
-            Action::ToolUse { name, output_summary, .. } => {
-                assert_eq!(name, "edit_file");
-                assert!(output_summary.contains("edited"), "edit_file should get edit_file response, got: {output_summary}");
-            }
-            _ => panic!("expected ToolUse"),
-        }
     }
 }

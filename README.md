@@ -21,6 +21,11 @@ AI 에이전트와 나눈 모든 대화를 검색하세요.
 
 ---
 
+<div align="center">
+<img src="screenshot-2026-04-06-143216.png" alt="seCall Obsidian Vault" width="720" />
+<br/><br/>
+</div>
+
 ## What is seCall?
 
 seCall is a local-first search engine for AI agent sessions. It ingests conversation logs from **Claude Code**, **Codex CLI**, and **Gemini CLI**, indexes them with hybrid BM25 + vector search, and exposes them via CLI, MCP server, and an Obsidian-compatible knowledge vault.
@@ -41,8 +46,8 @@ Parse and normalize sessions from multiple AI coding agents into a unified forma
 | Agent | Format | Status |
 |---|---|---|
 | Claude Code | JSONL | ✅ Stable |
-| Codex CLI | JSONL | 🔧 In Progress |
-| ~~Gemini CLI~~ | ~~JSON~~ | 🔧 In Progress |
+| Codex CLI | JSONL | ✅ Stable |
+| Gemini CLI | JSON | ✅ Stable |
 
 ### Hybrid Search
 
@@ -287,6 +292,11 @@ This project was developed using AI coding agents (Claude Code, Codex) orchestra
 
 </div>
 
+<div align="center">
+<img src="screenshot-2026-04-06-143216.png" alt="seCall Obsidian 볼트" width="720" />
+<br/><br/>
+</div>
+
 ## seCall이란?
 
 seCall은 AI 에이전트 세션을 위한 로컬 퍼스트 검색 엔진입니다. **Claude Code**, **Codex CLI**, **Gemini CLI**의 대화 로그를 수집하고, BM25 + 벡터 하이브리드 검색으로 인덱싱하며, CLI/MCP 서버/Obsidian 호환 지식 볼트로 제공합니다.
@@ -307,8 +317,8 @@ AI와의 대화는 곧 지식 자산입니다. seCall은 그것을 검색 가능
 | 에이전트 | 형식 | 상태 |
 |---|---|---|
 | Claude Code | JSONL | ✅ 안정 |
-| Codex CLI | JSONL | 🔧 진행 중 |
-| ~~Gemini CLI~~ | ~~JSON~~ | 🔧 진행 중 |
+| Codex CLI | JSONL | ✅ 안정 |
+| Gemini CLI | JSON | ✅ 안정 |
 
 ### 하이브리드 검색
 
@@ -527,3 +537,11 @@ Claude Code 설정 (`~/.claude/settings.json`)에 추가:
 ## 라이선스
 
 [AGPL-3.0](LICENSE)
+
+---
+
+<div align="center">
+
+**Contact**: [d9ng@outlook.com](mailto:d9ng@outlook.com)
+
+</div>

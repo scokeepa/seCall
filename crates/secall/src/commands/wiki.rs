@@ -61,9 +61,9 @@ pub async fn run_update(
     let status = child.wait()?;
 
     if status.success() {
-        eprintln!("✓ Wiki update complete.");
+        tracing::info!("wiki update complete");
     } else {
-        eprintln!("⚠ Claude Code exited with code: {:?}", status.code());
+        tracing::warn!(code = ?status.code(), "Claude Code exited with non-zero code");
     }
 
     Ok(())

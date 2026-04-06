@@ -149,11 +149,11 @@ pub fn create_tokenizer(backend: &str) -> Result<Box<dyn Tokenizer>> {
     match backend {
         "kiwi" => match KiwiTokenizer::new() {
             Ok(t) => {
-                eprintln!("✓ kiwi-rs tokenizer loaded.");
+                tracing::info!("kiwi-rs tokenizer loaded");
                 Ok(Box::new(t))
             }
             Err(e) => {
-                eprintln!("⚠ kiwi-rs failed: {e}. Falling back to lindera.");
+                tracing::warn!(error = %e, "kiwi-rs failed, falling back to lindera");
                 Ok(Box::new(LinderaKoTokenizer::new()?))
             }
         },

@@ -11,7 +11,7 @@ pub async fn run(_all: bool) -> Result<()> {
 
     let vector_indexer = secall_core::search::vector::create_vector_indexer(&config).await;
     if vector_indexer.is_none() {
-        eprintln!("⚠ No embedding backend available. Check config [embedding] section.");
+        tracing::warn!("no embedding backend available, check config [embedding] section");
         return Ok(());
     }
 

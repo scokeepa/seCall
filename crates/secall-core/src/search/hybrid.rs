@@ -84,8 +84,22 @@ impl SearchEngine {
 
         let bm25_results = self.bm25.search(db, query, candidate_limit, filters)?;
 
+        // BM25 결과에서 후보 session_id 추출 → 벡터 검색 범위 제한
+        let candidate_ids: Vec<String> = {
+            let mut seen = std::collections::HashSet::new();
+            bm25_results.iter()
+                .map(|r| r.session_id.clone())
+                .filter(|id| seen.insert(id.clone()))
+                .collect()
+        };
+
         let vector_results = if let Some(vi) = &self.vector {
-            vi.search(db, query, candidate_limit, filters).await.unwrap_or_default()
+            let ids_opt = if candidate_ids.is_empty() {
+                None // BM25 결과 없음 → 전체 검색
+            } else {
+                Some(candidate_ids.as_slice())
+            };
+            vi.search(db, query, candidate_limit, filters, ids_opt).await.unwrap_or_default()
         } else {
             Vec::new()
         };
@@ -118,7 +132,7 @@ impl SearchEngine {
         filters: &SearchFilters,
     ) -> anyhow::Result<Vec<SearchResult>> {
         match &self.vector {
-            Some(vi) => vi.search(db, query, limit, filters).await,
+            Some(vi) => vi.search(db, query, limit, filters, None).await,
             None => Ok(Vec::new()),
         }
     }
@@ -142,7 +156,7 @@ impl SearchEngine {
         filters: &SearchFilters,
     ) -> anyhow::Result<Vec<SearchResult>> {
         match &self.vector {
-            Some(vi) => vi.search_with_embedding(db, embedding, limit, filters),
+            Some(vi) => vi.search_with_embedding(db, embedding, limit, filters, None),
             None => Ok(Vec::new()),
         }
     }

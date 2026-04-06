@@ -57,7 +57,7 @@ impl ModelManager {
 
     pub async fn download(&self, force: bool) -> Result<()> {
         if self.is_downloaded() && !force {
-            eprintln!("✓ Model already exists. Use --force to re-download.");
+            tracing::info!("model already exists, use --force to re-download");
             return Ok(());
         }
         std::fs::create_dir_all(&self.model_dir)
@@ -84,7 +84,7 @@ impl ModelManager {
         std::fs::write(&version_path, serde_json::to_string_pretty(&version)?)
             .context("failed to write version.json")?;
 
-        eprintln!("✓ Model downloaded to {}", self.model_dir.display());
+        tracing::info!(path = %self.model_dir.display(), "model downloaded");
         Ok(())
     }
 
@@ -134,7 +134,7 @@ impl ModelManager {
                 eprint!("\r⬇ Downloading {final_name}... {}", format_bytes(downloaded));
             }
         }
-        eprintln!("\r⬇ Downloading {final_name}... done ({})                    ", format_bytes(downloaded));
+        tracing::info!(name = final_name, size = %format_bytes(downloaded), "download complete");
 
         drop(file);
         std::fs::rename(&tmp_path, &final_path).context("failed to rename temp file")?;
@@ -179,9 +179,9 @@ impl ModelManager {
         if self.model_dir.exists() {
             std::fs::remove_dir_all(&self.model_dir)
                 .context("failed to remove model directory")?;
-            eprintln!("✓ Model removed: {}", self.model_dir.display());
+            tracing::info!(path = %self.model_dir.display(), "model removed");
         } else {
-            eprintln!("⚠ Model directory not found.");
+            tracing::warn!("model directory not found");
         }
         Ok(())
     }

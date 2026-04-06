@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use chrono::TimeZone;
-
 use super::types::{Action, Role, Session};
 
 const TOOL_OUTPUT_MAX_CHARS: usize = 500;

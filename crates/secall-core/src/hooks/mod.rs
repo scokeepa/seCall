@@ -37,7 +37,7 @@ pub fn run_post_ingest_hook(config: &Config, session: &Session, vault_path: &Pat
     let hook_path = expand_tilde(&hook_path_str);
 
     if !hook_path.exists() {
-        eprintln!("warn: post_ingest hook not found: {}", hook_path.display());
+        tracing::warn!(path = %hook_path.display(), "post_ingest hook not found");
         return Ok(());
     }
 
@@ -63,10 +63,7 @@ pub fn run_post_ingest_hook(config: &Config, session: &Session, vault_path: &Pat
             None => {
                 if std::time::Instant::now() > deadline {
                     let _ = child.kill();
-                    eprintln!(
-                        "warn: post_ingest hook timed out after {}s",
-                        timeout_secs
-                    );
+                    tracing::warn!(timeout_secs, "post_ingest hook timed out");
                     return Ok(());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(100));
@@ -75,7 +72,7 @@ pub fn run_post_ingest_hook(config: &Config, session: &Session, vault_path: &Pat
     };
 
     if !status.success() {
-        eprintln!("warn: post_ingest hook exited with: {}", status);
+        tracing::warn!(status = %status, "post_ingest hook exited with non-zero status");
     }
     Ok(())
 }

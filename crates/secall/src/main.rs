@@ -167,6 +167,16 @@ enum WikiAction {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // stderr 전용 — stdout은 MCP 프로토콜 전용
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .init();
+
     let cli = Cli::parse();
 
     match cli.command {

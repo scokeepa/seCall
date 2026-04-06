@@ -63,7 +63,7 @@ pub fn parse_claude_jsonl(path: &Path) -> Result<Session> {
         let value: Value = match serde_json::from_str(trimmed) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("warn: JSON parse error (skipping line): {e}");
+                tracing::warn!(error = %e, "JSON parse error (skipping line)");
                 continue;
             }
         };

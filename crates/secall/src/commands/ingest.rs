@@ -59,7 +59,7 @@ pub async fn run(
             }
             Ok(false) => {}
             Err(e) => {
-                eprintln!("warn: DB check failed for {}, skipping: {e}", session_path.display());
+                tracing::warn!(path = %session_path.display(), error = %e, "DB check failed, skipping");
                 errors += 1;
                 continue;
             }
@@ -75,7 +75,7 @@ pub async fn run(
                     }
                     Ok(false) => {}
                     Err(e) => {
-                        eprintln!("warn: DB check failed for {}, skipping: {e}", session_path.display());
+                        tracing::warn!(path = %session_path.display(), error = %e, "DB check failed, skipping");
                         errors += 1;
                         continue;
                     }
@@ -85,7 +85,7 @@ pub async fn run(
                 let rel_path = match vault.write_session(&session) {
                     Ok(p) => p,
                     Err(e) => {
-                        eprintln!("warn: vault write failed for {}: {e}", session_path.display());
+                        tracing::warn!(path = %session_path.display(), error = %e, "vault write failed");
                         errors += 1;
                         continue;
                     }
@@ -103,10 +103,10 @@ pub async fn run(
                 let stats = match bm25_result {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("warn: indexing failed for {}, rolling back: {e}", session_path.display());
+                        tracing::warn!(path = %session_path.display(), error = %e, "indexing failed, rolling back");
                         // Cleanup: vault 파일 삭제
                         if let Err(rm_err) = std::fs::remove_file(&config.vault.path.join(&rel_path)) {
-                            eprintln!("warn: failed to cleanup vault file: {rm_err}");
+                            tracing::warn!(error = %rm_err, "failed to cleanup vault file");
                         }
                         errors += 1;
                         continue;
@@ -117,7 +117,7 @@ pub async fn run(
                 {
                     let vec_stats = engine.index_session_vectors(&db, &session).await;
                     if let Err(e) = vec_stats {
-                        eprintln!("warn: vector embedding failed for {}: {e}", &session.id[..8.min(session.id.len())]);
+                        tracing::warn!(session = &session.id[..8.min(session.id.len())], error = %e, "vector embedding failed");
                     }
                 }
 
@@ -128,11 +128,11 @@ pub async fn run(
 
                 // Run post-ingest hook (트랜잭션 밖, 비치명적)
                 if let Err(e) = run_post_ingest_hook(&config, &session, &abs_path) {
-                    eprintln!("warn: post-ingest hook failed for {}: {e}", &session.id[..8.min(session.id.len())]);
+                    tracing::warn!(session = &session.id[..8.min(session.id.len())], error = %e, "post-ingest hook failed");
                 }
             }
             Err(e) => {
-                eprintln!("warn: failed to parse {}: {e}", session_path.display());
+                tracing::warn!(path = %session_path.display(), error = %e, "failed to parse session file");
                 errors += 1;
             }
         }
@@ -168,7 +168,10 @@ fn collect_paths(
         if pb.is_file() {
             Ok(vec![pb])
         } else if pb.is_dir() {
-            find_claude_sessions(Some(&pb))
+            let mut paths = find_claude_sessions(Some(&pb))?;
+            paths.extend(find_codex_sessions(Some(&pb))?);
+            paths.extend(find_gemini_sessions(Some(&pb))?);
+            Ok(paths)
         } else {
             // Treat as session ID — search in ~/.claude/projects/
             find_session_by_id(p)

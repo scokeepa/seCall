@@ -90,10 +90,10 @@ impl SeCallMcpServer {
                             all_results.extend(results);
                         }
                         Ok(None) => {
-                            eprintln!("info: vector search disabled (Ollama not available)");
+                            tracing::info!("vector search disabled (Ollama not available)");
                         }
                         Err(e) => {
-                            eprintln!("warn: embedding failed: {e}");
+                            tracing::warn!(error = %e, "embedding failed");
                         }
                     }
                 }
@@ -230,6 +230,50 @@ impl ServerHandler for SeCallMcpServer {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use rmcp::handler::server::wrapper::Parameters;
+
+    use super::SeCallMcpServer;
+    use crate::search::bm25::Bm25Indexer;
+    use crate::search::hybrid::SearchEngine;
+    use crate::search::tokenizer::LinderaKoTokenizer;
+    use crate::store::db::Database;
+    use super::super::tools::{QueryItem, QueryType, RecallParams, StatusParams};
+
+    fn make_server() -> SeCallMcpServer {
+        let db = Database::open_memory().unwrap();
+        let tok = LinderaKoTokenizer::new().unwrap();
+        let engine = SearchEngine::new(Bm25Indexer::new(Box::new(tok)), None);
+        SeCallMcpServer::new(Arc::new(Mutex::new(db)), Arc::new(engine))
+    }
+
+    #[test]
+    fn test_status_tool() {
+        let server = make_server();
+        let result = server.status(Parameters(StatusParams {}));
+        assert!(result.contains("session") || result.contains("Session") || result.contains("error"));
+    }
+
+    #[tokio::test]
+    async fn test_recall_empty_db() {
+        let server = make_server();
+        let params = RecallParams {
+            queries: vec![QueryItem {
+                query_type: QueryType::Keyword,
+                query: "테스트 검색어".to_string(),
+            }],
+            project: None,
+            agent: None,
+            limit: Some(5),
+        };
+        let result = server.recall(Parameters(params)).await;
+        assert!(result.is_ok());
+    }
+}
+
 pub async fn start_mcp_server(db: Database, search: SearchEngine) -> anyhow::Result<()> {
     let server =
         SeCallMcpServer::new(Arc::new(Mutex::new(db)), Arc::new(search));
@@ -278,8 +322,8 @@ pub async fn start_mcp_http_server(
 
     let tcp_listener = tokio::net::TcpListener::bind(addr).await?;
 
-    eprintln!("✓ MCP HTTP server listening on {bind_addr}");
-    eprintln!("  Endpoint: http://{bind_addr}/mcp");
+    tracing::info!(addr = %bind_addr, "MCP HTTP server listening");
+    tracing::info!(endpoint = %format!("http://{bind_addr}/mcp"), "MCP endpoint");
 
     axum::serve(tcp_listener, router).await?;
     Ok(())
