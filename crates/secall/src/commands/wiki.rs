@@ -30,7 +30,7 @@ pub async fn run_update(
     }
 
     // 4. Check claude CLI exists
-    if !command_exists("claude") {
+    if !secall_core::command_exists("claude") {
         anyhow::bail!(
             "Claude Code CLI not found in PATH. \
              Install: https://docs.anthropic.com/claude-code"
@@ -142,12 +142,4 @@ fn prompt_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("secall")
         .join("prompts")
-}
-
-pub fn command_exists(cmd: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
 }

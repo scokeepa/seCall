@@ -17,6 +17,11 @@ use crate::store::db::Database;
 use crate::store::{SessionRepo, VectorRepo};
 use crate::vault::config::Config;
 
+/// 임베딩 벡터에 NaN 또는 Inf가 포함되어 있는지 확인
+fn has_invalid_values(embedding: &[f32]) -> bool {
+    embedding.iter().any(|v| v.is_nan() || v.is_infinite())
+}
+
 #[derive(Debug)]
 pub struct VectorRow {
     pub rowid: i64,
@@ -85,25 +90,73 @@ impl VectorIndexer {
             match self.embedder.embed_batch(text_batch).await {
                 Ok(batch_embeddings) => {
                     for (i, emb) in batch_embeddings.into_iter().enumerate() {
-                        embeddings[batch_idx * batch_size + i] = Some(emb);
+                        let idx = batch_idx * batch_size + i;
+                        if has_invalid_values(&emb) {
+                            tracing::warn!(
+                                session_id = %session.id,
+                                chunk_idx = idx,
+                                "NaN/Inf in embedding, skipping chunk"
+                            );
+                            embed_errors += 1;
+                        } else {
+                            embeddings[idx] = Some(emb);
+                        }
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, "embedding batch failed");
-                    embed_errors += text_batch.len();
+                    // 배치 실패 → 개별 재시도
+                    tracing::warn!(
+                        error = %e,
+                        batch = batch_idx,
+                        "batch embed failed, retrying individually"
+                    );
+                    for (i, text) in text_batch.iter().enumerate() {
+                        let idx = batch_idx * batch_size + i;
+                        match self.embedder.embed(text).await {
+                            Ok(emb) if !has_invalid_values(&emb) => {
+                                embeddings[idx] = Some(emb);
+                            }
+                            Ok(_) => {
+                                tracing::warn!(
+                                    session_id = %session.id,
+                                    chunk_idx = idx,
+                                    "NaN/Inf in individual embed, skipping"
+                                );
+                                embed_errors += 1;
+                            }
+                            Err(e2) => {
+                                tracing::warn!(
+                                    session_id = %session.id,
+                                    chunk_idx = idx,
+                                    error = %e2,
+                                    "individual embed failed, skipping"
+                                );
+                                embed_errors += 1;
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // Phase 1 실패 → 트랜잭션 진입하지 않고 즉시 에러 반환
-        // find_sessions_without_vectors()가 다음 실행에 이 세션을 다시 선택
-        if embed_errors > 0 {
+        // 유효한 임베딩이 하나도 없으면 실패, 부분 성공은 허용
+        let valid_count = embeddings.iter().filter(|e| e.is_some()).count();
+        if valid_count == 0 && !chunks.is_empty() {
             return Err(anyhow::anyhow!(
-                "session {} embedding failed: {}/{} chunks could not be embedded",
+                "session {} embedding completely failed: 0/{} chunks embedded",
                 &session.id,
-                embed_errors,
                 chunks.len()
             ));
+        }
+
+        if embed_errors > 0 {
+            tracing::warn!(
+                session_id = %session.id,
+                embedded = valid_count,
+                skipped = embed_errors,
+                total = chunks.len(),
+                "partial embedding — some chunks skipped"
+            );
         }
 
         // Phase 2: DELETE + INSERT — 세션 단위 트랜잭션으로 원자성 보장
@@ -672,6 +725,15 @@ mod tests {
     fn test_bytes_to_floats_corrupt_blob() {
         let result = bytes_to_floats(&[0, 0, 0, 0, 0]); // 5 bytes
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_has_invalid_values() {
+        assert!(!has_invalid_values(&[1.0, 2.0, 3.0]));
+        assert!(has_invalid_values(&[1.0, f32::NAN, 3.0]));
+        assert!(has_invalid_values(&[1.0, f32::INFINITY, 3.0]));
+        assert!(has_invalid_values(&[f32::NEG_INFINITY]));
+        assert!(!has_invalid_values(&[]));
     }
 
     #[test]

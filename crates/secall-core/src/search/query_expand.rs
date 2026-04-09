@@ -16,7 +16,7 @@ pub fn expand_query(query: &str, db: Option<&Database>) -> Result<String> {
         }
     }
 
-    if !command_exists("claude") {
+    if !crate::command_exists("claude") {
         tracing::warn!("claude not found, using original query");
         return Ok(query.to_string());
     }
@@ -52,14 +52,6 @@ pub fn expand_query(query: &str, db: Option<&Database>) -> Result<String> {
     }
 }
 
-fn command_exists(cmd: &str) -> bool {
-    std::process::Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -68,7 +60,7 @@ mod tests {
     #[test]
     fn test_expand_query_no_claude() {
         // If claude is not installed, should return original query
-        if command_exists("claude") {
+        if crate::command_exists("claude") {
             // Claude is installed; skip this specific path test
             return;
         }
@@ -78,7 +70,7 @@ mod tests {
 
     #[test]
     fn test_command_exists_false() {
-        assert!(!command_exists("__nonexistent_command_xyz__"));
+        assert!(!crate::command_exists("__nonexistent_command_xyz__"));
     }
 
     #[test]

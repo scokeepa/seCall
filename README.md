@@ -55,7 +55,7 @@ AI와의 대화는 곧 지식 자산입니다. seCall은 그것을 검색 가능
 
 - **BM25 전문 검색**: SQLite FTS5 + 한국어 형태소 분석 ([Lindera](https://github.com/lindera/lindera) ko-dic)
 - **벡터 시맨틱 검색**: ONNX Runtime + BGE-M3 임베딩 + **HNSW ANN 인덱스** ([usearch](https://github.com/unum-cloud/usearch))로 O(log n) 탐색
-- **Reciprocal Rank Fusion (RRF)**: 두 결과를 결합 (k=60)
+- **Reciprocal Rank Fusion (RRF)**: BM25/벡터 독립 실행 후 결합 (k=60) + **세션 다양성 강제** (세션당 최대 2개 턴)
 - **LLM 쿼리 확장**: Claude Code를 통한 자연어 쿼리 확장
 
 ### 멀티 기기 볼트 동기화
@@ -438,7 +438,7 @@ Parse and normalize sessions from multiple AI coding agents into a unified forma
 
 - **BM25 full-text search** powered by SQLite FTS5 with Korean morpheme tokenization ([Lindera](https://github.com/lindera/lindera) ko-dic)
 - **Vector semantic search** using ONNX Runtime with BGE-M3 embeddings + **HNSW ANN index** ([usearch](https://github.com/unum-cloud/usearch)) for O(log n) lookups
-- **Reciprocal Rank Fusion (RRF)** combining both results (k=60)
+- **Reciprocal Rank Fusion (RRF)** with independent BM25/vector execution (k=60) + **session-level diversity** (max 2 turns per session)
 - **LLM query expansion** for natural language queries via Claude Code
 
 ### Multi-Device Vault Sync
@@ -779,6 +779,8 @@ This project was developed using AI coding agents (Claude Code, Codex) orchestra
 
 | 날짜 | 버전 | 내용 |
 |------|------|------|
+| 2026-04-09 | P15 | Windows 런타임 수정 — Ollama NaN 내성 임베딩 (부분 성공 허용), 크로스플랫폼 `command_exists`, sync 충돌 상태 preflight 체크 |
+| 2026-04-09 | P14 | 검색 품질 개선 — 벡터 검색 독립 실행 (BM25 후보 제한 제거), 세션 레벨 결과 다양성 (세션당 최대 2개 턴) |
 | 2026-04-09 | P13 | Windows 빌드 지원 — `x86_64-pc-windows-msvc` CI/Release 추가, ORT DLL 번들링, `tokenizers` onig→fancy-regex, kiwi-rs 조건부 컴파일 |
 | 2026-04-09 | v0.2.3 | ChatGPT export 파서 — `conversations.json` (ZIP) 파싱, mapping tree 선형화, 멀티 content type 지원 |
 | 2026-04-08 | v0.2.2 | 타임존 설정 — `config.toml` `[output] timezone` 으로 vault 타임스탬프 IANA 타임존 변환 |

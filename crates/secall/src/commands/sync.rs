@@ -19,6 +19,13 @@ pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool) -> Result<()> {
         eprintln!("[DRY RUN] No changes will be made.\n");
     }
 
+    // === Preflight: vault git 충돌 상태 확인 (Closes #7) ===
+    if vault_git.is_git_repo() {
+        if let Some(msg) = vault_git.check_conflicted_state() {
+            anyhow::bail!("Sync aborted — vault git conflict detected.\n\n{msg}");
+        }
+    }
+
     // === Phase 0: 이전 sync에서 push되지 않은 변경 자동 커밋 (pull --rebase 실패 방지) ===
     if vault_git.is_git_repo() && !dry_run {
         match vault_git.auto_commit() {
@@ -86,7 +93,7 @@ pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool) -> Result<()> {
 
         // === Phase 3.5: Incremental wiki (새 세션 → wiki 갱신) ===
         if !no_wiki && !ingest_result.new_session_ids.is_empty() {
-            if !wiki::command_exists("claude") {
+            if !secall_core::command_exists("claude") {
                 eprintln!("  ⚠ Claude CLI not found, skipping wiki update.");
             } else {
                 let count = ingest_result.new_session_ids.len();

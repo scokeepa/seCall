@@ -14,6 +14,50 @@ impl<'a> VaultGit<'a> {
         self.vault_path.join(".git").exists()
     }
 
+    /// vault가 rebase/merge 충돌 상태인지 확인.
+    /// 충돌 상태이면 에러 메시지를 반환, 정상이면 None.
+    pub fn check_conflicted_state(&self) -> Option<String> {
+        if !self.is_git_repo() {
+            return None;
+        }
+
+        let git_dir = self.vault_path.join(".git");
+
+        if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
+            return Some(
+                "Vault repo is in a rebase state. Resolve it first:\n  \
+                 cd <vault> && git rebase --abort   # or fix conflicts and: git rebase --continue"
+                    .to_string(),
+            );
+        }
+
+        if git_dir.join("MERGE_HEAD").exists() {
+            return Some(
+                "Vault repo has an unfinished merge. Resolve it first:\n  \
+                 cd <vault> && git merge --abort   # or fix conflicts and: git commit"
+                    .to_string(),
+            );
+        }
+
+        // unmerged files 확인
+        if let Ok(output) = Command::new("git")
+            .args(["diff", "--name-only", "--diff-filter=U"])
+            .current_dir(self.vault_path)
+            .output()
+        {
+            let unmerged = String::from_utf8_lossy(&output.stdout);
+            if !unmerged.trim().is_empty() {
+                return Some(format!(
+                    "Vault repo has unmerged files:\n{}\n  \
+                     Resolve conflicts, then run `secall sync` again.",
+                    unmerged.trim()
+                ));
+            }
+        }
+
+        None
+    }
+
     /// git init + remote 설정 + .gitignore 생성
     pub fn init(&self, remote: &str) -> crate::error::Result<()> {
         if self.is_git_repo() {
