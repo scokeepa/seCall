@@ -204,7 +204,7 @@ sync 명령이 완성되면 Claude Code에서 자동 실행 가능:
 }
 ```
 
-> 세션 시작 시: `sync --local-only` (pull + reindex만, push 없음)
+> 세션 시작 시: `sync --local-only` (pull + reindex + ingest, push 생략)
 > 세션 종료 시: `sync` (전체 동기화)
 
 ## Dependencies

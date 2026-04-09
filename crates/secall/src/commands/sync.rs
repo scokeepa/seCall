@@ -20,7 +20,7 @@ pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool) -> Result<()> {
     }
 
     // === Phase 0: 이전 sync에서 push되지 않은 변경 자동 커밋 (pull --rebase 실패 방지) ===
-    if !local_only && vault_git.is_git_repo() && !dry_run {
+    if vault_git.is_git_repo() && !dry_run {
         match vault_git.auto_commit() {
             Ok(true) => eprintln!("Auto-committed pending vault changes."),
             Ok(false) => {}
@@ -32,7 +32,8 @@ pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool) -> Result<()> {
     }
 
     // === Phase 1: Pull (다른 기기 세션 수신) ===
-    if !local_only && vault_git.is_git_repo() {
+    // local_only는 push만 생략 — pull은 항상 수행하여 다른 기기 세션을 수신
+    if vault_git.is_git_repo() {
         if dry_run {
             eprintln!("[DRY RUN] Phase 1: Would pull from remote (git pull --rebase origin main)");
         } else {
@@ -130,23 +131,16 @@ pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool) -> Result<()> {
     }
 
     if dry_run {
+        eprintln!("[DRY RUN] Phase 3: Would ingest local sessions into vault");
+        if !no_wiki {
+            eprintln!(
+                "[DRY RUN] Phase 3.5: Would update wiki for new sessions (skip with --no-wiki)"
+            );
+        }
         if !local_only && vault_git.is_git_repo() {
-            eprintln!("[DRY RUN] Phase 3: Would ingest local sessions into vault");
-            if !no_wiki {
-                eprintln!(
-                    "[DRY RUN] Phase 3.5: Would update wiki for new sessions (skip with --no-wiki)"
-                );
-            }
             eprintln!(
                 "[DRY RUN] Phase 4: Would push vault changes to remote (git push origin main)"
             );
-        } else {
-            eprintln!("[DRY RUN] Phase 3: Would ingest local sessions into vault");
-            if !no_wiki {
-                eprintln!(
-                    "[DRY RUN] Phase 3.5: Would update wiki for new sessions (skip with --no-wiki)"
-                );
-            }
         }
         eprintln!("\n[DRY RUN] Sync preview complete. No changes made.");
     } else {

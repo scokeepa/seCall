@@ -83,7 +83,7 @@ secall sync
 }
 ```
 
-- **세션 시작 시**: `sync --local-only` — pull + reindex만 수행 (빠름)
+- **세션 시작 시**: `sync --local-only` — pull + reindex + ingest 수행, push 생략 (빠름)
 - **세션 종료 시**: `sync` — 전체 동기화 (push 포함)
 
 ### Cron (대안)
