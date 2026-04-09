@@ -499,6 +499,7 @@ impl Database {
             "claude-ai" => AgentKind::ClaudeAi,
             "codex" => AgentKind::Codex,
             "gemini-cli" => AgentKind::GeminiCli,
+            "chatgpt" => AgentKind::ChatGpt,
             _ => AgentKind::ClaudeCode,
         };
 

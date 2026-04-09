@@ -28,7 +28,7 @@ AI 에이전트와 나눈 모든 대화를 검색하세요.
 
 ## seCall이란?
 
-seCall은 AI 에이전트 세션을 위한 로컬 퍼스트 검색 엔진입니다. **Claude Code**, **Codex CLI**, **Gemini CLI**, **claude.ai**의 대화 로그를 수집하고, BM25 + 벡터 하이브리드 검색으로 인덱싱하며, CLI/MCP 서버/Obsidian 호환 지식 볼트로 제공합니다.
+seCall은 AI 에이전트 세션을 위한 로컬 퍼스트 검색 엔진입니다. **Claude Code**, **Codex CLI**, **Gemini CLI**, **claude.ai**, **ChatGPT**의 대화 로그를 수집하고, BM25 + 벡터 하이브리드 검색으로 인덱싱하며, CLI/MCP 서버/Obsidian 호환 지식 볼트로 제공합니다.
 
 AI와의 대화는 곧 지식 자산입니다. seCall은 그것을 검색 가능하고, 탐색 가능하며, 서로 연결된 형태로 만듭니다.
 
@@ -49,6 +49,7 @@ AI와의 대화는 곧 지식 자산입니다. seCall은 그것을 검색 가능
 | Codex CLI | JSONL | ✅ 안정 |
 | Gemini CLI | JSON | ✅ 안정 |
 | claude.ai | JSON (ZIP) | ✅ v0.2 신규 |
+| ChatGPT | JSON (ZIP) | ✅ v0.2.3 신규 |
 
 ### 하이브리드 검색
 
@@ -180,6 +181,9 @@ secall ingest ~/.gemini/sessions
 # claude.ai export 수집 (ZIP 또는 추출된 JSON)
 secall ingest ~/Downloads/data-2026-04-06.zip
 
+# ChatGPT export 수집 (ZIP 또는 conversations.json)
+secall ingest ~/Downloads/chatgpt-export.zip
+
 # 이미 수집된 세션 강제 재수집 (vault MD 재생성 + DB 갱신)
 secall ingest --auto --force
 
@@ -246,15 +250,15 @@ secall wiki status
 ## 아키텍처
 
 ```
-┌─────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-│  Claude Code │  │ Codex CLI │  │Gemini CLI│  │claude.ai │
-│    (JSONL)   │  │  (JSONL)  │  │  (JSON)  │  │JSON (ZIP)│
-└──────┬───────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
-       │               │             │              │
-       └───────┬───────┴─────────────┴──────────────┘
+┌─────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+│  Claude Code │  │ Codex CLI │  │Gemini CLI│  │claude.ai │  │ ChatGPT  │
+│    (JSONL)   │  │  (JSONL)  │  │  (JSON)  │  │JSON (ZIP)│  │JSON (ZIP)│
+└──────┬───────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+       │               │             │              │              │
+       └───────┬───────┴─────────────┴──────────────┴──────────────┘
                │
          ┌─────▼──────┐
-         │   파서들     │  claude.rs / codex.rs / gemini.rs / claude_ai.rs
+         │   파서들     │  claude.rs / codex.rs / gemini.rs / claude_ai.rs / chatgpt.rs
          └─────┬──────┘
                     │
           ┌─────────▼─────────┐
@@ -392,7 +396,7 @@ Claude Code 설정 (`~/.claude/settings.json`)에 추가:
 
 ## What is seCall?
 
-seCall is a local-first search engine for AI agent sessions. It ingests conversation logs from **Claude Code**, **Codex CLI**, **Gemini CLI**, and **claude.ai**, indexes them with hybrid BM25 + vector search, and exposes them via CLI, MCP server, and an Obsidian-compatible knowledge vault.
+seCall is a local-first search engine for AI agent sessions. It ingests conversation logs from **Claude Code**, **Codex CLI**, **Gemini CLI**, **claude.ai**, and **ChatGPT**, indexes them with hybrid BM25 + vector search, and exposes them via CLI, MCP server, and an Obsidian-compatible knowledge vault.
 
 Your AI conversations are a knowledge base. seCall makes them searchable, browsable, and interconnected.
 
@@ -413,6 +417,7 @@ Parse and normalize sessions from multiple AI coding agents into a unified forma
 | Codex CLI | JSONL | ✅ Stable |
 | Gemini CLI | JSON | ✅ Stable |
 | claude.ai | JSON (ZIP) | ✅ New in v0.2 |
+| ChatGPT | JSON (ZIP) | ✅ New in v0.2.3 |
 
 ### Hybrid Search
 
@@ -544,6 +549,9 @@ secall ingest ~/.gemini/sessions
 # Ingest claude.ai export (ZIP or extracted JSON)
 secall ingest ~/Downloads/data-2026-04-06.zip
 
+# Ingest ChatGPT export (ZIP or conversations.json)
+secall ingest ~/Downloads/chatgpt-export.zip
+
 # Force re-ingest already-indexed sessions (regenerate vault MD + update DB)
 secall ingest --auto --force
 
@@ -610,15 +618,15 @@ secall wiki status
 ## Architecture
 
 ```
-┌─────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
-│  Claude Code │  │ Codex CLI │  │Gemini CLI│  │claude.ai │
-│    (JSONL)   │  │  (JSONL)  │  │  (JSON)  │  │JSON (ZIP)│
-└──────┬───────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
-       │               │             │              │
-       └───────┬───────┴─────────────┴──────────────┘
+┌─────────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+│  Claude Code │  │ Codex CLI │  │Gemini CLI│  │claude.ai │  │ ChatGPT  │
+│    (JSONL)   │  │  (JSONL)  │  │  (JSON)  │  │JSON (ZIP)│  │JSON (ZIP)│
+└──────┬───────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘
+       │               │             │              │              │
+       └───────┬───────┴─────────────┴──────────────┴──────────────┘
                │
          ┌─────▼──────┐
-         │   Parsers   │  claude.rs / codex.rs / gemini.rs / claude_ai.rs
+         │   Parsers   │  claude.rs / codex.rs / gemini.rs / claude_ai.rs / chatgpt.rs
          └─────┬──────┘
                     │
           ┌─────────▼─────────┐
@@ -741,11 +749,12 @@ This project was developed using AI coding agents (Claude Code, Codex) orchestra
 
 | 날짜 | 버전 | 내용 |
 |------|------|------|
+| 2026-04-09 | v0.2.3 | ChatGPT export 파서 — `conversations.json` (ZIP) 파싱, mapping tree 선형화, 멀티 content type 지원 |
 | 2026-04-08 | v0.2.2 | 타임존 설정 — `config.toml` `[output] timezone` 으로 vault 타임스탬프 IANA 타임존 변환 |
 | 2026-04-08 | v0.2.1 | `--force` 재수집 옵션 + Dataview `::` 이스케이프 + AGPL-3.0 LICENSE |
 | 2026-04-07 | P11 | 임베딩 성능 최적화 — ORT session pool, batch inference, 병렬 처리, DB 트랜잭션 (49h → ~3-4h, 12-15x 개선) |
 | 2026-04-07 | P10 | 세션 `summary` frontmatter 추가 — 첫 User 턴 기반 자동 생성, `secall migrate summary`로 기존 세션 backfill |
-| 2026-04-07 | P9 | ChatGPT export 파서 설계 (데이터 대기 중) |
+| 2026-04-07 | P9 | ChatGPT export 파서 — `conversations.json` mapping tree 선형화, 14종 content type 지원 |
 | 2026-04-06 | P8 | 안정화 + GitHub Actions 릴리스 워크플로우, IngestError 구조화 |
 | 2026-04-06 | P7 | `--min-turns`, `embed --all`, `wiki_search` MCP 도구, incremental wiki, `--no-wiki` |
 | 2026-04-05 | v0.2 | claude.ai export 파서, ZIP 자동 해제 |

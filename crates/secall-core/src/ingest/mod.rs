@@ -1,5 +1,6 @@
 use std::path::Path;
 
+pub mod chatgpt;
 pub mod claude;
 pub mod claude_ai;
 pub mod codex;

@@ -4,8 +4,8 @@ use std::path::Path;
 use anyhow::{anyhow, Result};
 
 use super::{
-    claude::ClaudeCodeParser, claude_ai::ClaudeAiParser, codex::CodexParser, gemini::GeminiParser,
-    SessionParser,
+    chatgpt::ChatGptParser, claude::ClaudeCodeParser, claude_ai::ClaudeAiParser,
+    codex::CodexParser, gemini::GeminiParser, SessionParser,
 };
 
 pub fn detect_parser(path: &Path) -> Result<Box<dyn SessionParser>> {
@@ -23,11 +23,33 @@ pub fn detect_parser(path: &Path) -> Result<Box<dyn SessionParser>> {
         return Ok(Box::new(GeminiParser));
     }
 
-    // claude.ai export: ZIP 파일 (.zip 확장자)
+    // claude.ai / ChatGPT export: ZIP 파일 (.zip 확장자)
     if ext == "zip" {
         if let Ok(data) = std::fs::read(path) {
             if data.starts_with(b"PK\x03\x04") {
-                return Ok(Box::new(ClaudeAiParser));
+                if let Ok(file) = std::fs::File::open(path) {
+                    if let Ok(mut archive) = zip::ZipArchive::new(file) {
+                        if let Ok(mut conversations) = archive.by_name("conversations.json") {
+                            let mut raw = String::new();
+                            if std::io::Read::read_to_string(&mut conversations, &mut raw).is_ok() {
+                                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+                                    if let Some(first) = v.as_array().and_then(|arr| arr.first()) {
+                                        if first["chat_messages"].is_array()
+                                            && first["uuid"].is_string()
+                                        {
+                                            return Ok(Box::new(ClaudeAiParser));
+                                        }
+                                        if first["mapping"].is_object()
+                                            && first["conversation_id"].is_string()
+                                        {
+                                            return Ok(Box::new(ChatGptParser));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -67,18 +89,20 @@ pub fn detect_parser(path: &Path) -> Result<Box<dyn SessionParser>> {
         }
     }
 
-    // claude.ai export: conversations.json (JSON array with chat_messages)
+    // claude.ai / ChatGPT export: conversations.json (JSON array)
     if ext == "json" {
         if let Ok(data) = std::fs::read_to_string(path) {
             if data.trim_start().starts_with('[') {
                 if let Ok(v) = serde_json::from_str::<serde_json::Value>(&data) {
                     if let Some(arr) = v.as_array() {
-                        if arr
-                            .first()
-                            .map(|c| c["chat_messages"].is_array() && c["uuid"].is_string())
-                            .unwrap_or(false)
-                        {
-                            return Ok(Box::new(ClaudeAiParser));
+                        if let Some(first) = arr.first() {
+                            if first["chat_messages"].is_array() && first["uuid"].is_string() {
+                                return Ok(Box::new(ClaudeAiParser));
+                            }
+                            if first["mapping"].is_object() && first["conversation_id"].is_string()
+                            {
+                                return Ok(Box::new(ChatGptParser));
+                            }
                         }
                     }
                 }
@@ -255,6 +279,68 @@ mod tests {
         let base = tmp.path().join("nonexistent");
         let result = find_codex_sessions(Some(&base)).unwrap();
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_detect_chatgpt_json() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("conversations.json");
+        std::fs::write(
+            &path,
+            r#"[
+              {
+                "conversation_id": "conv-1",
+                "title": "chatgpt",
+                "create_time": 1711234567.123,
+                "mapping": {},
+                "current_node": null
+              }
+            ]"#,
+        )
+        .unwrap();
+
+        let parser = detect_parser(&path).unwrap();
+        assert_eq!(parser.agent_kind(), super::super::types::AgentKind::ChatGpt);
+    }
+
+    #[test]
+    fn test_detect_chatgpt_vs_claude_ai() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let claude_path = dir.path().join("claude-conversations.json");
+        std::fs::write(
+            &claude_path,
+            r#"[
+              {
+                "uuid": "conv-1",
+                "chat_messages": []
+              }
+            ]"#,
+        )
+        .unwrap();
+        let claude_parser = detect_parser(&claude_path).unwrap();
+        assert_eq!(
+            claude_parser.agent_kind(),
+            super::super::types::AgentKind::ClaudeAi
+        );
+
+        let chatgpt_path = dir.path().join("chatgpt-conversations.json");
+        std::fs::write(
+            &chatgpt_path,
+            r#"[
+              {
+                "conversation_id": "conv-2",
+                "mapping": {},
+                "current_node": null
+              }
+            ]"#,
+        )
+        .unwrap();
+        let chatgpt_parser = detect_parser(&chatgpt_path).unwrap();
+        assert_eq!(
+            chatgpt_parser.agent_kind(),
+            super::super::types::AgentKind::ChatGpt
+        );
     }
 
     #[test]

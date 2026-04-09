@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 pub enum AgentKind {
     ClaudeCode,
     ClaudeAi,
+    ChatGpt,
     Codex,
     GeminiCli,
 }
@@ -16,6 +17,7 @@ impl AgentKind {
         match self {
             AgentKind::ClaudeCode => "claude-code",
             AgentKind::ClaudeAi => "claude-ai",
+            AgentKind::ChatGpt => "chatgpt",
             AgentKind::Codex => "codex",
             AgentKind::GeminiCli => "gemini-cli",
         }

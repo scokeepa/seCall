@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.2.3 (2026-04-09)
+
+### Added
+- ChatGPT export 파서 (`ChatGptParser`) — `conversations.json` ZIP/JSON 파싱
+- `mapping` HashMap → `current_node` 부모 체인 추적으로 대화 선형화 (재생성 분기 자동 처리)
+- 멀티 content type 지원: text, code, multimodal_text, execution_output, reasoning_recap, thoughts, tether_browsing_display, user_editable_context
+- `AgentKind::ChatGpt` variant
+- `detect.rs`에 ChatGPT export 자동 탐지 로직 추가
+
 ## v0.2.2 (2026-04-08)
 
 ### Added

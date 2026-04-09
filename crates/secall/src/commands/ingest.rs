@@ -170,7 +170,7 @@ pub async fn ingest_sessions(
 
         // ClaudeAiParser는 항상 parse_all() 경로 (1:N)
         // agent_kind()로 판단하여 포맷·인코딩 방식과 무관하게 정확히 라우팅
-        if parser.agent_kind() == AgentKind::ClaudeAi {
+        if parser.agent_kind() == AgentKind::ClaudeAi || parser.agent_kind() == AgentKind::ChatGpt {
             match parser.parse_all(session_path) {
                 Ok(sessions) => {
                     eprintln!(
