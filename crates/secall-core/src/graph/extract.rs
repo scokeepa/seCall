@@ -309,6 +309,6 @@ mod tests {
         let same_day: Vec<_> = edges.iter().filter(|e| e.relation == "same_day").collect();
         // s1+s2만 같은 날 → 1개 엣지
         assert_eq!(same_day.len(), 1);
-        assert!(same_day[0].weight - 0.5 < f64::EPSILON);
+        assert!((same_day[0].weight - 0.5).abs() < f64::EPSILON);
     }
 }

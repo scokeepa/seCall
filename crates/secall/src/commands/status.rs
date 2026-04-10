@@ -15,6 +15,34 @@ pub fn run() -> Result<()> {
     println!("Vault:  {}", config.vault.path.display());
     println!();
 
+    println!("Settings:");
+    println!("  tokenizer  = {}", config.search.tokenizer);
+
+    let embedding_detail = match config.embedding.backend.as_str() {
+        "ollama" => {
+            let model = config.embedding.ollama_model.as_deref().unwrap_or("bge-m3");
+            format!("ollama ({})", model)
+        }
+        "ort" => "ort (local ONNX)".to_string(),
+        "openai" => {
+            let model = config
+                .embedding
+                .openai_model
+                .as_deref()
+                .unwrap_or("text-embedding-3-large");
+            format!("openai ({})", model)
+        }
+        "none" => "none (벡터 검색 비활성화)".to_string(),
+        other => other.to_string(),
+    };
+    println!("  embedding  = {}", embedding_detail);
+
+    if config.vault.git_remote.is_some() {
+        println!("  branch     = {}", config.vault.branch);
+    }
+    println!("  timezone   = {}", config.output.timezone);
+    println!();
+
     if !db_path.exists() {
         println!("DB does not exist. Run `secall init` first.");
         return Ok(());

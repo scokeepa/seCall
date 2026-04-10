@@ -379,9 +379,7 @@ impl SeCallMcpServer {
         let depth = params.depth.unwrap_or(1).min(3); // 최대 3홉
 
         // 1홉 이웃 조회
-        let neighbors = db
-            .get_neighbors(&params.node_id)
-            .map_err(|e| to_mcp_error(e))?;
+        let neighbors = db.get_neighbors(&params.node_id).map_err(to_mcp_error)?;
 
         // relation 필터 적용
         let filtered: Vec<_> = if let Some(ref rel) = params.relation {
