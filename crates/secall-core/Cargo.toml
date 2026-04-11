@@ -33,8 +33,10 @@ gethostname.workspace = true
 serde_yaml.workspace = true
 zip.workspace = true
 
-[target.'cfg(not(target_os = "windows"))'.dependencies]
+[target.'cfg(all(not(target_os = "windows"), not(all(target_os = "linux", target_arch = "aarch64"))))'.dependencies]
 kiwi-rs.workspace = true
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
 usearch.workspace = true
 
 [dev-dependencies]

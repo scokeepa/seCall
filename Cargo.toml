@@ -45,4 +45,4 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 usearch = "2"
 gethostname = "0.4"
 serde_yaml = "0.9"
-zip = "2"
+zip = { version = "=2.3.0", default-features = false, features = ["deflate"] }

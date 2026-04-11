@@ -6,7 +6,7 @@ rust-version.workspace = true
 
 [dependencies]
 secall-core = { path = "../secall-core" }
-clap = { version = "4", features = ["derive"] }
+clap = { version = "=4.5.58", features = ["derive"] }
 tokio.workspace = true
 anyhow.workspace = true
 serde.workspace = true
