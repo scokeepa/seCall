@@ -32,6 +32,7 @@ fn to_mcp_error(e: SecallError) -> McpError {
 
 #[derive(Clone)]
 pub struct SeCallMcpServer {
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
     db: Arc<Mutex<Database>>,
     search: Arc<SearchEngine>,

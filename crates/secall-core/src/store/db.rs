@@ -805,7 +805,8 @@ mod tests {
     #[test]
     fn test_session_exists_by_prefix() {
         let db = Database::open_memory().unwrap();
-        db.insert_session(&make_test_session("abcdef1234567890")).unwrap();
+        db.insert_session(&make_test_session("abcdef1234567890"))
+            .unwrap();
         assert!(db.session_exists_by_prefix("abcdef").unwrap());
         assert!(!db.session_exists_by_prefix("xxxxxx").unwrap());
     }
@@ -818,8 +819,7 @@ mod tests {
             .unwrap();
         let paths = db.list_session_vault_paths().unwrap();
         let found = paths.iter().any(|(id, vp)| {
-            id == "sess-vp"
-                && vp.as_deref() == Some("raw/sessions/2026-04-01/sess-vp.md")
+            id == "sess-vp" && vp.as_deref() == Some("raw/sessions/2026-04-01/sess-vp.md")
         });
         assert!(found);
     }
@@ -872,8 +872,12 @@ mod tests {
             start_time: "2026-04-01T00:00:00+00:00".to_string(),
             ..Default::default()
         };
-        db.insert_session_from_vault(&fm, "some body text about Rust", "raw/sessions/vault-001.md")
-            .unwrap();
+        db.insert_session_from_vault(
+            &fm,
+            "some body text about Rust",
+            "raw/sessions/vault-001.md",
+        )
+        .unwrap();
         assert!(db.session_exists("vault-001").unwrap());
         // FTS row should be present
         let fts_count: i64 = db

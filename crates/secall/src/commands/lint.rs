@@ -82,10 +82,7 @@ pub fn run(json: bool, errors_only: bool, fix: bool) -> Result<()> {
     Ok(())
 }
 
-fn run_fix(
-    db: &Database,
-    report: &secall_core::ingest::lint::LintReport,
-) -> Result<()> {
+fn run_fix(db: &Database, report: &secall_core::ingest::lint::LintReport) -> Result<()> {
     let stale: Vec<&str> = report
         .findings
         .iter()
