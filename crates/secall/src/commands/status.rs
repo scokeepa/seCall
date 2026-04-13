@@ -23,7 +23,11 @@ pub fn run() -> Result<()> {
             let model = config.embedding.ollama_model.as_deref().unwrap_or("bge-m3");
             format!("ollama ({})", model)
         }
-        "ort" => "ort (local ONNX)".to_string(),
+        "ort" => "ort (local ONNX, CPU)".to_string(),
+        "openvino" => {
+            let device = config.embedding.openvino_device.as_deref().unwrap_or("NPU");
+            format!("openvino ({device})")
+        }
         "openai" => {
             let model = config
                 .embedding

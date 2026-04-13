@@ -374,6 +374,36 @@ pub async fn create_vector_indexer(config: &Config) -> Option<VectorIndexer> {
                 }
             }
         }
+        #[cfg(feature = "openvino")]
+        "openvino" => {
+            let model_dir = config
+                .embedding
+                .model_path
+                .clone()
+                .unwrap_or_else(default_model_path);
+
+            let mgr = ModelManager::new(model_dir.clone());
+            if !mgr.is_downloaded() {
+                tracing::warn!("ONNX model not found, downloading");
+                if let Err(e) = mgr.download(false).await {
+                    tracing::warn!(error = %e, "download failed, trying ORT CPU fallback");
+                    return try_ort_cpu_fallback(config).await;
+                }
+            }
+
+            let device = config.embedding.openvino_device.as_deref();
+            let ov_dir = config.openvino.dir.as_deref();
+            match crate::search::embedding::OpenVinoEmbedder::new(&model_dir, device, ov_dir) {
+                Ok(e) => {
+                    tracing::info!(device = %e.device, "OpenVINO loaded, NPU vector search enabled");
+                    VectorIndexer::new(Box::new(e))
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "OpenVINO load failed, trying ORT CPU fallback");
+                    return try_ort_cpu_fallback(config).await;
+                }
+            }
+        }
         "openai" => {
             let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
             if !api_key.is_empty() {
@@ -395,6 +425,30 @@ pub async fn create_vector_indexer(config: &Config) -> Option<VectorIndexer> {
     #[cfg(not(target_os = "windows"))]
     let indexer = attach_ann_index(indexer);
     Some(indexer)
+}
+
+/// OpenVINO 실패 시 ORT CPU → Ollama 순으로 fallback.
+#[cfg(feature = "openvino")]
+async fn try_ort_cpu_fallback(config: &Config) -> Option<VectorIndexer> {
+    let model_dir = config
+        .embedding
+        .model_path
+        .clone()
+        .unwrap_or_else(default_model_path);
+
+    match OrtEmbedder::new(&model_dir) {
+        Ok(e) => {
+            tracing::info!("ORT CPU fallback loaded, vector search enabled");
+            let indexer = VectorIndexer::new(Box::new(e));
+            #[cfg(not(target_os = "windows"))]
+            let indexer = attach_ann_index(indexer);
+            Some(indexer)
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "ORT CPU fallback also failed, trying Ollama");
+            try_ollama_fallback_with_ann(config).await
+        }
+    }
 }
 
 async fn try_ollama_fallback_with_ann(config: &Config) -> Option<VectorIndexer> {

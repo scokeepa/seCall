@@ -166,7 +166,7 @@ impl OrtEmbedder {
         Arc::clone(&self.sessions[idx])
     }
 
-    fn probe_dim(
+    pub(crate) fn probe_dim(
         session: &mut ort::session::Session,
         tokenizer: &tokenizers::Tokenizer,
     ) -> Result<usize> {
@@ -175,7 +175,7 @@ impl OrtEmbedder {
     }
 
     /// batch 단위로 inference. padding + attention_mask 구성 후 단일 session.run() 호출.
-    fn run_inference_batch(
+    pub(crate) fn run_inference_batch(
         session: &mut ort::session::Session,
         tokenizer: &tokenizers::Tokenizer,
         texts: &[String],
@@ -263,7 +263,7 @@ impl OrtEmbedder {
         Ok(results)
     }
 
-    fn run_inference(
+    pub(crate) fn run_inference(
         session: &mut ort::session::Session,
         tokenizer: &tokenizers::Tokenizer,
         text: &str,
@@ -371,6 +371,292 @@ impl Embedder for OrtEmbedder {
 
     fn model_name(&self) -> &str {
         "bge-m3-onnx"
+    }
+}
+
+// ─── OpenVinoEmbedder ─────────────────────────────────────────────────────────
+
+/// Local ONNX-based embedder using openvino-rs crate directly (not ORT EP).
+/// Uses a dedicated worker thread since openvino types are !Send/!Sync.
+/// Requires OpenVINO runtime installed on the system.
+#[cfg(feature = "openvino")]
+pub struct OpenVinoEmbedder {
+    tx: std::sync::Mutex<std::sync::mpsc::Sender<OpenVinoWork>>,
+    _worker: Option<std::thread::JoinHandle<()>>,
+    tokenizer: Arc<tokenizers::Tokenizer>,
+    dim: usize,
+    pub device: String,
+}
+
+#[cfg(feature = "openvino")]
+struct OpenVinoWork {
+    items: Vec<TokenizedItem>,
+    reply: tokio::sync::oneshot::Sender<Result<Vec<Vec<f32>>>>,
+}
+
+#[cfg(feature = "openvino")]
+struct TokenizedItem {
+    input_ids: Vec<i64>,
+    attention_mask: Vec<i64>,
+}
+
+#[cfg(feature = "openvino")]
+impl OpenVinoEmbedder {
+    pub fn new(
+        model_dir: &Path,
+        device: Option<&str>,
+        openvino_dir: Option<&str>,
+    ) -> Result<Self> {
+        let device = device.unwrap_or("NPU").to_string();
+        let tokenizer = tokenizers::Tokenizer::from_file(model_dir.join("tokenizer.json"))
+            .map_err(|e| anyhow!("tokenizer load failed: {e}"))?;
+
+        let (work_tx, work_rx) = std::sync::mpsc::channel::<OpenVinoWork>();
+        let (init_tx, init_rx) = std::sync::mpsc::channel::<Result<usize>>();
+
+        let model_path = model_dir.join("model.onnx").to_string_lossy().to_string();
+        let device_clone = device.clone();
+        let ov_dir = openvino_dir.map(|s| s.to_string());
+
+        let worker = std::thread::spawn(move || {
+            // Set OpenVINO installation directory if configured
+            if let Some(dir) = &ov_dir {
+                // SAFETY: called before any OpenVINO usage on this thread
+                #[allow(unused_unsafe)]
+                unsafe {
+                    std::env::set_var("INTEL_OPENVINO_DIR", dir);
+                }
+            }
+
+            let mut core = match openvino::Core::new() {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = init_tx.send(Err(anyhow!("OpenVINO Core init failed: {e:?}")));
+                    return;
+                }
+            };
+
+            let model = match core.read_model_from_file(&model_path, "") {
+                Ok(m) => m,
+                Err(e) => {
+                    let _ = init_tx.send(Err(anyhow!("model load failed: {e:?}")));
+                    return;
+                }
+            };
+
+            let device_type: openvino::DeviceType = openvino::DeviceType::from(device_clone.as_str()).to_owned();
+            let mut compiled = match core.compile_model(&model, device_type) {
+                Ok(c) => c,
+                Err(e) => {
+                    let _ = init_tx.send(Err(anyhow!(
+                        "compile for {device_clone} failed: {e:?}"
+                    )));
+                    return;
+                }
+            };
+
+            let mut request = match compiled.create_infer_request() {
+                Ok(r) => r,
+                Err(e) => {
+                    let _ = init_tx.send(Err(anyhow!("create infer request failed: {e:?}")));
+                    return;
+                }
+            };
+
+            // Probe dimensions with a test inference
+            match ov_infer_single(&mut request, &[101, 102], &[1, 1]) {
+                Ok(embedding) => {
+                    let _ = init_tx.send(Ok(embedding.len()));
+                }
+                Err(e) => {
+                    let _ = init_tx.send(Err(anyhow!("dimension probe failed: {e}")));
+                    return;
+                }
+            }
+
+            // Event loop: process work items
+            while let Ok(work) = work_rx.recv() {
+                let mut results = Vec::with_capacity(work.items.len());
+                let mut err = None;
+                for item in &work.items {
+                    match ov_infer_single(&mut request, &item.input_ids, &item.attention_mask) {
+                        Ok(embedding) => results.push(embedding),
+                        Err(e) => {
+                            err = Some(e);
+                            break;
+                        }
+                    }
+                }
+                let reply_result = match err {
+                    Some(e) => Err(e),
+                    None => Ok(results),
+                };
+                let _ = work.reply.send(reply_result);
+            }
+        });
+
+        let dim = init_rx
+            .recv()
+            .map_err(|_| anyhow!("OpenVINO worker thread died during init"))??;
+
+        tracing::info!(dim, device = %device, "OpenVINO embedder ready");
+
+        Ok(Self {
+            tx: std::sync::Mutex::new(work_tx),
+            _worker: Some(worker),
+            tokenizer: Arc::new(tokenizer),
+            dim,
+            device,
+        })
+    }
+
+    fn tokenize(&self, texts: &[&str]) -> Result<Vec<TokenizedItem>> {
+        texts
+            .iter()
+            .map(|text| {
+                let encoding = self
+                    .tokenizer
+                    .encode(*text, true)
+                    .map_err(|e| anyhow!("tokenize failed: {e}"))?;
+                Ok(TokenizedItem {
+                    input_ids: encoding.get_ids().iter().map(|&x| x as i64).collect(),
+                    attention_mask: encoding
+                        .get_attention_mask()
+                        .iter()
+                        .map(|&x| x as i64)
+                        .collect(),
+                })
+            })
+            .collect()
+    }
+
+}
+
+/// Single-text inference on an OpenVINO InferRequest.
+/// Returns mean-pooled, L2-normalized embedding.
+#[cfg(feature = "openvino")]
+fn ov_infer_single(
+    request: &mut openvino::InferRequest,
+    input_ids: &[i64],
+    attention_mask: &[i64],
+) -> Result<Vec<f32>> {
+    let seq_len = input_ids.len() as i64;
+
+    let shape = openvino::Shape::new(&[1, seq_len])
+        .map_err(|e| anyhow!("shape error: {e:?}"))?;
+
+    let mut ids_tensor = openvino::Tensor::new(openvino::ElementType::I64, &shape)
+        .map_err(|e| anyhow!("tensor error: {e:?}"))?;
+    ids_tensor
+        .get_data_mut::<i64>()
+        .map_err(|e| anyhow!("tensor data error: {e:?}"))?
+        .copy_from_slice(input_ids);
+
+    let mut mask_tensor = openvino::Tensor::new(openvino::ElementType::I64, &shape)
+        .map_err(|e| anyhow!("tensor error: {e:?}"))?;
+    mask_tensor
+        .get_data_mut::<i64>()
+        .map_err(|e| anyhow!("tensor data error: {e:?}"))?
+        .copy_from_slice(attention_mask);
+
+    request
+        .set_tensor("input_ids", &ids_tensor)
+        .map_err(|e| anyhow!("set input_ids: {e:?}"))?;
+    request
+        .set_tensor("attention_mask", &mask_tensor)
+        .map_err(|e| anyhow!("set attention_mask: {e:?}"))?;
+
+    request.infer().map_err(|e| anyhow!("infer failed: {e:?}"))?;
+
+    // Output: last_hidden_state [1, seq_len, dim]
+    let output = request
+        .get_output_tensor_by_index(0)
+        .map_err(|e| anyhow!("get output: {e:?}"))?;
+    let output_data: &[f32] = output
+        .get_data()
+        .map_err(|e| anyhow!("output data: {e:?}"))?;
+
+    let seq = seq_len as usize;
+    let dim = output_data.len() / seq;
+
+    // Mean pooling weighted by attention mask
+    let mask_sum: f32 = attention_mask.iter().map(|&m| m as f32).sum::<f32>().max(1e-9);
+    let mut embedding = vec![0.0f32; dim];
+    for i in 0..seq {
+        let m = attention_mask[i] as f32;
+        for d in 0..dim {
+            embedding[d] += output_data[i * dim + d] * m;
+        }
+    }
+    for e in embedding.iter_mut() {
+        *e /= mask_sum;
+    }
+
+    // L2 normalize
+    let norm: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm > 1e-9 {
+        for e in embedding.iter_mut() {
+            *e /= norm;
+        }
+    }
+
+    Ok(embedding)
+}
+
+#[cfg(feature = "openvino")]
+#[async_trait]
+impl Embedder for OpenVinoEmbedder {
+    async fn embed(&self, text: &str) -> Result<Vec<f32>> {
+        let items = self.tokenize(&[text])?;
+        let embedder_tx = self
+            .tx
+            .lock()
+            .map_err(|_| anyhow!("openvino channel lock poisoned"))?
+            .clone();
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let work = OpenVinoWork {
+            items,
+            reply: reply_tx,
+        };
+        embedder_tx
+            .send(work)
+            .map_err(|_| anyhow!("openvino worker thread stopped"))?;
+        let mut results = reply_rx
+            .await
+            .map_err(|_| anyhow!("openvino worker dropped reply"))??;
+        results.pop().ok_or_else(|| anyhow!("empty result"))
+    }
+
+    async fn embed_batch(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        let items = self.tokenize(texts)?;
+        let embedder_tx = self
+            .tx
+            .lock()
+            .map_err(|_| anyhow!("openvino channel lock poisoned"))?
+            .clone();
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
+        let work = OpenVinoWork {
+            items,
+            reply: reply_tx,
+        };
+        embedder_tx
+            .send(work)
+            .map_err(|_| anyhow!("openvino worker thread stopped"))?;
+        reply_rx
+            .await
+            .map_err(|_| anyhow!("openvino worker dropped reply"))?
+    }
+
+    async fn is_available(&self) -> bool {
+        true
+    }
+
+    fn dimensions(&self) -> usize {
+        self.dim
+    }
+
+    fn model_name(&self) -> &str {
+        "bge-m3-openvino"
     }
 }
 
@@ -507,6 +793,13 @@ mod tests {
         let rt = tokio::runtime::Runtime::new().unwrap();
         let embedding = rt.block_on(e.embed("hello world")).expect("embed");
         assert_eq!(embedding.len(), 3072);
+    }
+
+    #[cfg(feature = "openvino")]
+    #[test]
+    fn test_embedder_trait_openvino() {
+        fn assert_embedder<T: Embedder>() {}
+        assert_embedder::<OpenVinoEmbedder>();
     }
 
     #[test]

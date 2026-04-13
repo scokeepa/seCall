@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 const MODEL_URL: &str = "https://huggingface.co/BAAI/bge-m3/resolve/main/onnx/model.onnx";
+const MODEL_DATA_URL: &str =
+    "https://huggingface.co/BAAI/bge-m3/resolve/main/onnx/model.onnx_data";
 const TOKENIZER_URL: &str = "https://huggingface.co/BAAI/bge-m3/resolve/main/tokenizer.json";
 const HF_API_URL: &str = "https://huggingface.co/api/models/BAAI/bge-m3";
 
@@ -14,6 +16,8 @@ pub struct VersionInfo {
     pub model: String,
     pub downloaded_at: String,
     pub sha256_model: String,
+    #[serde(default)]
+    pub sha256_model_data: Option<String>,
     pub sha256_tokenizer: String,
     pub source_revision: String,
 }
@@ -23,6 +27,7 @@ pub struct ModelInfo {
     pub path: PathBuf,
     pub version: Option<VersionInfo>,
     pub model_size: Option<u64>,
+    pub model_data_size: Option<u64>,
     pub tokenizer_size: Option<u64>,
 }
 
@@ -49,7 +54,9 @@ impl ModelManager {
     }
 
     pub fn is_downloaded(&self) -> bool {
-        self.model_dir.join("model.onnx").exists() && self.model_dir.join("tokenizer.json").exists()
+        self.model_dir.join("model.onnx").exists()
+            && self.model_dir.join("model.onnx_data").exists()
+            && self.model_dir.join("tokenizer.json").exists()
     }
 
     pub async fn download(&self, force: bool) -> Result<()> {
@@ -64,6 +71,11 @@ impl ModelManager {
             .await
             .context("failed to download model.onnx")?;
 
+        let model_data_sha = self
+            .download_file(MODEL_DATA_URL, "model.onnx_data")
+            .await
+            .context("failed to download model.onnx_data")?;
+
         let tokenizer_sha = self
             .download_file(TOKENIZER_URL, "tokenizer.json")
             .await
@@ -73,6 +85,7 @@ impl ModelManager {
             model: "BAAI/bge-m3".to_string(),
             downloaded_at: chrono::Utc::now().to_rfc3339(),
             sha256_model: model_sha,
+            sha256_model_data: Some(model_data_sha),
             sha256_tokenizer: tokenizer_sha,
             source_revision: "main".to_string(),
         };
@@ -194,6 +207,9 @@ impl ModelManager {
         let model_size = std::fs::metadata(self.model_dir.join("model.onnx"))
             .ok()
             .map(|m| m.len());
+        let model_data_size = std::fs::metadata(self.model_dir.join("model.onnx_data"))
+            .ok()
+            .map(|m| m.len());
         let tokenizer_size = std::fs::metadata(self.model_dir.join("tokenizer.json"))
             .ok()
             .map(|m| m.len());
@@ -202,6 +218,7 @@ impl ModelManager {
             path: self.model_dir.clone(),
             version,
             model_size,
+            model_data_size,
             tokenizer_size,
         })
     }
@@ -244,6 +261,7 @@ mod tests {
             model: "BAAI/bge-m3".to_string(),
             downloaded_at: "2026-04-06T12:00:00Z".to_string(),
             sha256_model: "abc123".to_string(),
+            sha256_model_data: Some("ghi789".to_string()),
             sha256_tokenizer: "def456".to_string(),
             source_revision: "main".to_string(),
         };

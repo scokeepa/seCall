@@ -11,6 +11,7 @@ pub struct Config {
     pub search: SearchConfig,
     pub hooks: HooksConfig,
     pub embedding: EmbeddingConfig,
+    pub openvino: OpenVinoConfig,
     pub output: OutputConfig,
     pub wiki: WikiConfig,
 }
@@ -63,16 +64,25 @@ pub struct SearchConfig {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct EmbeddingConfig {
-    /// Embedding backend: "ollama" | "ort" | "openai"
+    /// Embedding backend: "ollama" | "ort" | "openai" | "openvino"
     pub backend: String,
     /// Ollama base URL (ollama backend)
     pub ollama_url: Option<String>,
     /// Ollama model name (ollama backend)
     pub ollama_model: Option<String>,
-    /// ONNX model directory (ort backend)
+    /// ONNX model directory (ort / openvino backend)
     pub model_path: Option<PathBuf>,
     /// OpenAI model name (openai backend)
     pub openai_model: Option<String>,
+    /// OpenVINO device type: "NPU" | "GPU" | "CPU" (openvino backend)
+    pub openvino_device: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub struct OpenVinoConfig {
+    /// Path to OpenVINO installation directory (sets INTEL_OPENVINO_DIR)
+    pub dir: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
@@ -185,6 +195,7 @@ impl Default for Config {
             search: SearchConfig::default(),
             hooks: HooksConfig::default(),
             embedding: EmbeddingConfig::default(),
+            openvino: OpenVinoConfig::default(),
             output: OutputConfig::default(),
             wiki: WikiConfig::default(),
         }
@@ -218,6 +229,7 @@ impl Default for EmbeddingConfig {
             ollama_model: None,
             model_path: None,
             openai_model: None,
+            openvino_device: None,
         }
     }
 }

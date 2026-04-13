@@ -34,6 +34,16 @@ pub fn run_show() -> Result<()> {
     if let Some(model) = &config.embedding.ollama_model {
         println!("  ollama_model = {}", model);
     }
+    if let Some(device) = &config.embedding.openvino_device {
+        println!("  openvino_device = {}", device);
+    }
+    println!();
+
+    println!("[openvino]");
+    match &config.openvino.dir {
+        Some(dir) => println!("  dir = {}", dir),
+        None => println!("  dir = (auto-detect)"),
+    }
     println!();
 
     println!("[output]");
@@ -76,9 +86,9 @@ pub fn run_set(key: &str, value: &str) -> Result<()> {
             config.search.default_limit = n;
         }
         "embedding.backend" => {
-            if !["ollama", "ort", "openai", "none"].contains(&value) {
+            if !["ollama", "ort", "openai", "openvino", "none"].contains(&value) {
                 anyhow::bail!(
-                    "invalid backend: '{}'. Valid: ollama, ort, openai, none",
+                    "invalid backend: '{}'. Valid: ollama, ort, openai, openvino, none",
                     value
                 );
             }
@@ -89,6 +99,22 @@ pub fn run_set(key: &str, value: &str) -> Result<()> {
         }
         "embedding.ollama_model" => {
             config.embedding.ollama_model = Some(value.to_string());
+        }
+        "embedding.openvino_device" => {
+            if !["NPU", "GPU", "CPU"].contains(&value) {
+                anyhow::bail!(
+                    "invalid openvino device: '{}'. Valid: NPU, GPU, CPU",
+                    value
+                );
+            }
+            config.embedding.openvino_device = Some(value.to_string());
+        }
+        "openvino.dir" => {
+            let path = std::path::PathBuf::from(shellexpand::tilde(value).to_string());
+            if !path.exists() {
+                eprintln!("Warning: directory does not exist: {}", path.display());
+            }
+            config.openvino.dir = Some(path.to_string_lossy().to_string());
         }
         "output.timezone" => {
             value.parse::<chrono_tz::Tz>().map_err(|_| {
@@ -104,7 +130,8 @@ pub fn run_set(key: &str, value: &str) -> Result<()> {
                 "unknown config key: '{}'\n\nAvailable keys:\n  \
                 vault.path, vault.git_remote, vault.branch\n  \
                 search.tokenizer, search.default_limit\n  \
-                embedding.backend, embedding.ollama_url, embedding.ollama_model\n  \
+                embedding.backend, embedding.ollama_url, embedding.ollama_model, embedding.openvino_device\n  \
+                openvino.dir\n  \
                 output.timezone",
                 key
             );

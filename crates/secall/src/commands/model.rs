@@ -49,9 +49,14 @@ pub fn run_info() -> Result<()> {
     }
     match (info.model_size, info.tokenizer_size) {
         (Some(m), Some(t)) => {
+            let data_str = info
+                .model_data_size
+                .map(|d| format!(", model.onnx_data ({:.0}MB)", d as f64 / (1024.0 * 1024.0)))
+                .unwrap_or_default();
             println!(
-                "Files:     model.onnx ({:.0}MB), tokenizer.json ({:.0}KB)",
+                "Files:     model.onnx ({:.0}MB){}, tokenizer.json ({:.0}KB)",
                 m as f64 / (1024.0 * 1024.0),
+                data_str,
                 t as f64 / 1024.0
             );
         }

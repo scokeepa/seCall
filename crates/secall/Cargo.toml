@@ -22,3 +22,6 @@ tracing-subscriber.workspace = true
 gethostname.workspace = true
 futures = "0.3"
 regex.workspace = true
+
+[features]
+openvino = ["secall-core/openvino"]
