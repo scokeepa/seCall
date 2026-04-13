@@ -421,12 +421,41 @@ impl OpenVinoEmbedder {
         let worker = std::thread::spawn(move || {
             // Set OpenVINO installation directory if configured
             if let Some(dir) = &ov_dir {
-                // SAFETY: called before any OpenVINO usage on this thread
                 #[allow(unused_unsafe)]
                 unsafe {
                     std::env::set_var("INTEL_OPENVINO_DIR", dir);
                 }
             }
+
+            // Pre-load libopenvino.so by absolute path before Core::new().
+            // dlopen at runtime ignores LD_LIBRARY_PATH set after process start,
+            // so we must load the dependency explicitly first.
+            let _preloaded_lib = ov_dir.as_ref().and_then(|dir| {
+                let base = std::path::Path::new(dir);
+                let lib_dir = [
+                    base.join("runtime/lib/intel64"),
+                    base.join("runtime/lib"),
+                    base.join("lib"),
+                ]
+                .into_iter()
+                .find(|p| p.exists())?;
+
+                let lib_path = lib_dir.join("libopenvino.so");
+                if !lib_path.exists() {
+                    tracing::warn!(path = %lib_path.display(), "libopenvino.so not found");
+                    return None;
+                }
+                match unsafe { libloading::Library::new(&lib_path) } {
+                    Ok(lib) => {
+                        tracing::debug!(path = %lib_path.display(), "pre-loaded libopenvino.so");
+                        Some(lib)
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "failed to pre-load libopenvino.so");
+                        None
+                    }
+                }
+            });
 
             let mut core = match openvino::Core::new() {
                 Ok(c) => c,

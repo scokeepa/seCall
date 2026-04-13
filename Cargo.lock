@@ -3185,6 +3185,7 @@ dependencies = [
  "futures-util",
  "gethostname",
  "kiwi-rs",
+ "libloading",
  "lindera",
  "ndarray",
  "openvino",
