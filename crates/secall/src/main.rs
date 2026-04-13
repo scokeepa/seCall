@@ -49,6 +49,10 @@ enum Commands {
         /// Re-ingest already-indexed sessions (overwrite vault + DB)
         #[arg(long)]
         force: bool,
+
+        /// Skip semantic edge extraction during ingest
+        #[arg(long)]
+        no_semantic: bool,
     },
 
     /// Search session history
@@ -310,8 +314,10 @@ async fn main() -> anyhow::Result<()> {
             cwd,
             min_turns,
             force,
+            no_semantic,
         } => {
-            commands::ingest::run(path, auto, cwd, min_turns, force, &cli.format).await?;
+            commands::ingest::run(path, auto, cwd, min_turns, force, no_semantic, &cli.format)
+                .await?;
         }
         Commands::Recall {
             query,

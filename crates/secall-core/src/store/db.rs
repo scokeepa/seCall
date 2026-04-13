@@ -243,6 +243,18 @@ impl Database {
 
     // ─── Lint helpers ────────────────────────────────────────────────────────
 
+    /// Return vault_path for a single session
+    pub fn get_session_vault_path(&self, session_id: &str) -> Result<Option<String>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT vault_path FROM sessions WHERE id = ?1")?;
+        match stmt.query_row([session_id], |row| row.get::<_, Option<String>>(0)) {
+            Ok(vp) => Ok(vp),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Return (session_id, vault_path) for all sessions
     pub fn list_session_vault_paths(&self) -> Result<Vec<(String, Option<String>)>> {
         let mut stmt = self.conn.prepare("SELECT id, vault_path FROM sessions")?;

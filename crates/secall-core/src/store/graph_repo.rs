@@ -29,6 +29,7 @@ impl Database {
     }
 
     /// 엣지 upsert (INSERT OR IGNORE — 중복 무시)
+    /// 반환값: 실제 삽입된 행 수 (0 = 중복으로 무시됨, 1 = 삽입됨)
     pub fn upsert_graph_edge(
         &self,
         source: &str,
@@ -36,12 +37,12 @@ impl Database {
         relation: &str,
         confidence: &str,
         weight: f64,
-    ) -> Result<()> {
-        self.conn().execute(
+    ) -> Result<usize> {
+        let rows = self.conn().execute(
             "INSERT OR IGNORE INTO graph_edges(source, target, relation, confidence, weight) VALUES (?1, ?2, ?3, ?4, ?5)",
             rusqlite::params![source, target, relation, confidence, weight],
         )?;
-        Ok(())
+        Ok(rows)
     }
 
     /// 노드의 이웃 조회 (양방향)

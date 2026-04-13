@@ -8,18 +8,24 @@ use crate::ingest::markdown::SessionFrontmatter;
 
 fn re_issue_ref() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"(?i)(?:fixes|closes|resolves|issue|re:)?\s*#(\d+)").unwrap())
+    // prefix 필수: bare #N은 Task #N 등 false positive가 너무 많음
+    RE.get_or_init(|| {
+        Regex::new(r"(?i)(?:fixes|closes|resolves|close|fix|resolve)\s+#(\d+)").unwrap()
+    })
 }
 
 fn re_file_edit() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
+    // 인라인 포맷: `> [!tool]- Edit `path``
+    // + 코드블록 포맷: `> [!tool]- Edit\n> ```\n> path\n> ```
     RE.get_or_init(|| Regex::new(r">\s*\[!tool\]-\s*Edit\s+`([^`]+)`").unwrap())
 }
 
-fn re_tool_path() -> &'static Regex {
+fn re_file_edit_block() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
+    // 코드블록 포맷 (실제 세션에서 주로 사용되는 형식)
     RE.get_or_init(|| {
-        Regex::new(r">\s*\[!tool\]-\s*(?:Edit|Write|Bash)[^\n]*\n>\s*```\n>\s*([^\n`]+)").unwrap()
+        Regex::new(r">\s*\[!tool\]-\s*(?:Edit|Write)\s*\n>\s*```\n>\s*([^\n`]+)\n>\s*```").unwrap()
     })
 }
 
@@ -133,10 +139,25 @@ pub fn extract_from_frontmatter(fm: &SessionFrontmatter) -> ExtractionResult {
     ExtractionResult { nodes, edges }
 }
 
+/// 절대 경로를 cwd 기준 상대 경로로 변환. cwd가 없거나 prefix가 안 맞으면 원본 반환.
+fn normalize_file_path(path: &str, cwd: Option<&str>) -> String {
+    if let Some(cwd) = cwd {
+        let cwd_prefix = if cwd.ends_with('/') {
+            cwd.to_string()
+        } else {
+            format!("{}/", cwd)
+        };
+        if let Some(rel) = path.strip_prefix(&cwd_prefix) {
+            return rel.to_string();
+        }
+    }
+    path.to_string()
+}
+
 /// Rule-based 시맨틱 엣지 추출.
 ///
-/// - `fixes_bug`: summary + body에서 `#N`, `fixes #N`, `closes #N` 등 이슈 참조 → `session → issue:N`
-/// - `modifies_file`: body의 FileEdit/ToolUse 렌더링에서 파일 경로 추출 → `session → file:path`
+/// - `fixes_bug`: summary + body에서 `fixes #N`, `closes #N` 등 명시적 이슈 참조 → `session → issue:N`
+/// - `modifies_file`: body의 Edit/Write 렌더링에서 파일 경로 추출 → `session → file:path`
 ///   단, frontmatter의 tools_used에 Edit 또는 Write가 없으면 modifies_file은 건너뜀.
 pub fn extract_semantic_edges(fm: &SessionFrontmatter, body: &str) -> Vec<GraphEdge> {
     let mut edges = Vec::new();
@@ -173,10 +194,12 @@ pub fn extract_semantic_edges(fm: &SessionFrontmatter, body: &str) -> Vec<GraphE
 
     if has_edit_write {
         let mut seen_files = std::collections::HashSet::new();
+        let cwd = fm.cwd.as_deref();
 
-        // FileEdit 렌더링: `> [!tool]- Edit \`path\``
+        // 인라인 포맷: `> [!tool]- Edit `path``
         for cap in re_file_edit().captures_iter(body) {
-            let path = cap[1].trim().to_string();
+            let raw_path = cap[1].trim();
+            let path = normalize_file_path(raw_path, cwd);
             if !path.is_empty() && seen_files.insert(path.clone()) {
                 edges.push(GraphEdge {
                     source: session_node_id.clone(),
@@ -188,15 +211,15 @@ pub fn extract_semantic_edges(fm: &SessionFrontmatter, body: &str) -> Vec<GraphE
             }
         }
 
-        // ToolUse 블록 input_summary 첫 줄: Edit/Write 뒤 코드블록 첫 줄
-        for cap in re_tool_path().captures_iter(body) {
-            let path = cap[1].trim().to_string();
-            // 파일 경로처럼 보이는지 간단히 검증: '/' 또는 '\' 포함, 공백 없음
-            if !path.is_empty()
-                && (path.contains('/') || path.contains('\\'))
-                && !path.contains(' ')
-                && seen_files.insert(path.clone())
-            {
+        // 코드블록 포맷 (실제 세션에서 주로 사용):
+        // > [!tool]- Edit
+        // > ```
+        // > /absolute/path/to/file.rs
+        // > ```
+        for cap in re_file_edit_block().captures_iter(body) {
+            let raw_path = cap[1].trim();
+            let path = normalize_file_path(raw_path, cwd);
+            if !path.is_empty() && !path.contains(' ') && seen_files.insert(path.clone()) {
                 edges.push(GraphEdge {
                     source: session_node_id.clone(),
                     target: format!("file:{}", path),
@@ -456,12 +479,26 @@ mod tests {
     #[test]
     fn test_semantic_fixes_bug_from_body() {
         let fm = make_fm_with_summary("abc12345", None, None);
-        let body = "## Turn 1 — User\n\nPlease resolve #7\n\n## Turn 2 — Assistant\n\nI will fix issue #7.";
+        let body =
+            "## Turn 1 — User\n\nPlease resolve #7\n\n## Turn 2 — Assistant\n\nI will fix #7.";
         let edges = extract_semantic_edges(&fm, body);
         let issues: Vec<_> = edges.iter().filter(|e| e.relation == "fixes_bug").collect();
-        // #7이 2번 언급되지만 중복 제거
         assert_eq!(issues.len(), 1);
         assert_eq!(issues[0].target, "issue:7");
+    }
+
+    #[test]
+    fn test_semantic_no_false_positive_on_task_numbers() {
+        // "Task #1", "Updated task #5" 등은 이슈가 아님 → 매칭되면 안 됨
+        let fm = make_fm_with_summary("abc12345", None, None);
+        let body = "> Task #1 created successfully\n> Updated task #5 status\nSee #42 for details";
+        let edges = extract_semantic_edges(&fm, body);
+        let issues: Vec<_> = edges.iter().filter(|e| e.relation == "fixes_bug").collect();
+        assert_eq!(
+            issues.len(),
+            0,
+            "bare #N should not match without fixes/closes prefix"
+        );
     }
 
     #[test]
@@ -506,5 +543,62 @@ mod tests {
         let body = "> [!tool]- Edit `src/main.rs`\n\n";
         let edges = extract_semantic_edges(&fm, body);
         assert!(edges.iter().all(|e| e.relation != "modifies_file"));
+    }
+
+    #[test]
+    fn test_semantic_modifies_file_code_block_format() {
+        // 실제 세션에서 사용되는 코드블록 렌더링 포맷
+        let mut fm = make_fm_with_summary("abc12345", Some(vec!["Edit"]), None);
+        fm.cwd = Some("/Users/d9ng/privateProject/tunaFlow".to_string());
+        let body =
+            "> [!tool]- Edit\n> ```\n> /Users/d9ng/privateProject/tunaFlow/src/main.rs\n> ```\n";
+        let edges = extract_semantic_edges(&fm, body);
+        let files: Vec<_> = edges
+            .iter()
+            .filter(|e| e.relation == "modifies_file")
+            .collect();
+        assert_eq!(files.len(), 1);
+        // cwd 기준 상대경로로 변환됨
+        assert_eq!(files[0].target, "file:src/main.rs");
+    }
+
+    #[test]
+    fn test_semantic_modifies_file_absolute_path_without_cwd() {
+        // cwd가 없으면 절대경로 그대로 저장
+        let fm = make_fm_with_summary("abc12345", Some(vec!["Edit"]), None);
+        let body = "> [!tool]- Edit\n> ```\n> /some/absolute/path.rs\n> ```\n";
+        let edges = extract_semantic_edges(&fm, body);
+        let files: Vec<_> = edges
+            .iter()
+            .filter(|e| e.relation == "modifies_file")
+            .collect();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].target, "file:/some/absolute/path.rs");
+    }
+
+    #[test]
+    fn test_normalize_file_path() {
+        assert_eq!(
+            normalize_file_path(
+                "/Users/d9ng/project/src/main.rs",
+                Some("/Users/d9ng/project")
+            ),
+            "src/main.rs"
+        );
+        assert_eq!(
+            normalize_file_path(
+                "/Users/d9ng/project/src/main.rs",
+                Some("/Users/d9ng/project/")
+            ),
+            "src/main.rs"
+        );
+        assert_eq!(
+            normalize_file_path("src/main.rs", Some("/Users/d9ng/project")),
+            "src/main.rs"
+        );
+        assert_eq!(
+            normalize_file_path("/other/path.rs", Some("/Users/d9ng/project")),
+            "/other/path.rs"
+        );
     }
 }

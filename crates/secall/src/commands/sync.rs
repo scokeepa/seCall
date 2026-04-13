@@ -287,6 +287,7 @@ async fn run_auto_ingest(config: &Config, db: &Database) -> Result<IngestStats> 
         &vault,
         0,
         false,
+        false, // no_semantic: sync에서는 시맨틱 추출 활성화
         &OutputFormat::Text,
     )
     .await

@@ -51,6 +51,7 @@ pub async fn run(
     cwd: Option<PathBuf>,
     min_turns: usize,
     force: bool,
+    no_semantic: bool,
     format: &OutputFormat,
 ) -> Result<()> {
     let config = Config::load_or_default();
@@ -74,7 +75,15 @@ pub async fn run(
     }
 
     let stats = ingest_sessions(
-        &config, &db, paths, &engine, &vault, min_turns, force, format,
+        &config,
+        &db,
+        paths,
+        &engine,
+        &vault,
+        min_turns,
+        force,
+        no_semantic,
+        format,
     )
     .await?;
 
@@ -139,6 +148,7 @@ pub async fn ingest_sessions(
     vault: &Vault,
     min_turns: usize,
     force: bool,
+    no_semantic: bool,
     format: &OutputFormat,
 ) -> Result<IngestStats> {
     let mut ingested = 0usize;
@@ -308,6 +318,58 @@ pub async fn ingest_sessions(
                     message: e.to_string(),
                 });
                 errors += 1;
+            }
+        }
+    }
+
+    // 시맨틱 엣지 추출 (graph build 경유 아닌 ingest 직접 연동)
+    if config.graph.semantic && !no_semantic && !new_session_ids.is_empty() {
+        eprintln!(
+            "Extracting semantic edges for {} session(s)...",
+            new_session_ids.len()
+        );
+        for session_id in &new_session_ids {
+            let short = &session_id[..8.min(session_id.len())];
+            // vault에서 세션 마크다운 읽기
+            let vault_path_opt = match db.get_session_vault_path(session_id) {
+                Ok(vp) => vp,
+                Err(e) => {
+                    tracing::warn!(session = short, "DB error reading vault path: {}", e);
+                    continue;
+                }
+            };
+            let md_path = match vault_path_opt {
+                Some(vp) => config.vault.path.join(&vp),
+                None => {
+                    tracing::debug!(
+                        session = short,
+                        "no vault path, skipping semantic extraction"
+                    );
+                    continue;
+                }
+            };
+            let content = match std::fs::read_to_string(&md_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(session = short, "failed to read vault file: {}", e);
+                    continue;
+                }
+            };
+            let fm = match secall_core::ingest::markdown::parse_session_frontmatter(&content) {
+                Ok(f) => f,
+                Err(e) => {
+                    tracing::warn!(session = short, "failed to parse frontmatter: {}", e);
+                    continue;
+                }
+            };
+            let body = secall_core::ingest::markdown::extract_body_text(&content);
+            match secall_core::graph::semantic::extract_and_store(db, &fm, &body).await {
+                Ok(n) => {
+                    tracing::debug!(session = short, edges = n, "semantic edges extracted")
+                }
+                Err(e) => {
+                    tracing::warn!(session = short, "semantic extraction skipped: {}", e)
+                }
             }
         }
     }

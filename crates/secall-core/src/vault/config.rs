@@ -13,6 +13,7 @@ pub struct Config {
     pub embedding: EmbeddingConfig,
     pub output: OutputConfig,
     pub wiki: WikiConfig,
+    pub graph: GraphConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -133,6 +134,19 @@ impl Default for WikiConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct GraphConfig {
+    /// 시맨틱 엣지 추출 활성화 (기본: true)
+    pub semantic: bool,
+}
+
+impl Default for GraphConfig {
+    fn default() -> Self {
+        GraphConfig { semantic: true }
+    }
+}
+
 /// 단일 세션 분류 규칙
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ClassificationRule {
@@ -187,6 +201,7 @@ impl Default for Config {
             embedding: EmbeddingConfig::default(),
             output: OutputConfig::default(),
             wiki: WikiConfig::default(),
+            graph: GraphConfig::default(),
         }
     }
 }
