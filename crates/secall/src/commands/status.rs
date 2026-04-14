@@ -25,7 +25,7 @@ pub fn run() -> Result<()> {
         }
         "ort" => "ort (local ONNX, CPU)".to_string(),
         "openvino" => {
-            let device = config.embedding.openvino_device.as_deref().unwrap_or("NPU");
+            let device = config.embedding.openvino_device.as_deref().unwrap_or("GPU");
             format!("openvino ({device})")
         }
         "openai" => {
