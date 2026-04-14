@@ -30,4 +30,24 @@ export class SeCallApi {
     });
     return resp.json;
   }
+
+  async daily(date?: string) {
+    const resp = await requestUrl({
+      url: `${this.baseUrl}/api/daily`,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ date }),
+    });
+    return resp.json;
+  }
+
+  async graph(nodeId: string, depth = 1, relation?: string) {
+    const resp = await requestUrl({
+      url: `${this.baseUrl}/api/graph`,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ node_id: nodeId, depth, relation }),
+    });
+    return resp.json;
+  }
 }

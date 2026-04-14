@@ -65,6 +65,28 @@ impl From<RestGetParams> for GetParams {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct RestDailyParams {
+    date: Option<String>, // "YYYY-MM-DD", 기본 오늘
+}
+
+#[derive(Debug, Deserialize)]
+struct RestGraphParams {
+    node_id: String,
+    depth: Option<usize>,
+    relation: Option<String>,
+}
+
+impl From<RestGraphParams> for GraphQueryParams {
+    fn from(p: RestGraphParams) -> Self {
+        GraphQueryParams {
+            node_id: p.node_id,
+            depth: p.depth,
+            relation: p.relation,
+        }
+    }
+}
+
 type AppState = Arc<SeCallMcpServer>;
 
 /// REST API 라우터 생성
@@ -82,6 +104,7 @@ pub fn rest_router(server: SeCallMcpServer) -> Router {
         .route("/api/status", get(api_status))
         .route("/api/wiki", post(api_wiki))
         .route("/api/graph", post(api_graph))
+        .route("/api/daily", post(api_daily))
         .layer(cors)
         .with_state(state)
 }
@@ -102,7 +125,7 @@ pub async fn start_rest_server(
     let listener = tokio::net::TcpListener::bind(addr).await?;
 
     tracing::info!(addr = %addr, "REST API server listening");
-    tracing::info!("endpoints: /api/recall, /api/get, /api/status, /api/wiki, /api/graph");
+    tracing::info!("endpoints: /api/recall, /api/get, /api/status, /api/wiki, /api/graph, /api/daily");
 
     axum::serve(listener, router).await?;
     Ok(())
@@ -147,9 +170,22 @@ async fn api_wiki(
 
 async fn api_graph(
     State(s): State<AppState>,
-    Json(p): Json<GraphQueryParams>,
+    Json(p): Json<RestGraphParams>,
 ) -> impl IntoResponse {
-    match s.do_graph_query(p) {
+    match s.do_graph_query(p.into()) {
+        Ok(json) => (StatusCode::OK, Json(json)).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+async fn api_daily(
+    State(s): State<AppState>,
+    Json(p): Json<RestDailyParams>,
+) -> impl IntoResponse {
+    let date = p.date.unwrap_or_else(|| {
+        chrono::Local::now().format("%Y-%m-%d").to_string()
+    });
+    match s.do_daily(&date) {
         Ok(json) => (StatusCode::OK, Json(json)).into_response(),
         Err(e) => error_response(e),
     }

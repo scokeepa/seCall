@@ -3,10 +3,12 @@ import type SeCallPlugin from "./main";
 
 export interface SeCallSettings {
   serverUrl: string;
+  dailyNotesFolder: string;
 }
 
 export const DEFAULT_SETTINGS: SeCallSettings = {
   serverUrl: "http://127.0.0.1:8080",
+  dailyNotesFolder: "seCall/daily",
 };
 
 export class SeCallSettingTab extends PluginSettingTab {
@@ -30,6 +32,19 @@ export class SeCallSettingTab extends PluginSettingTab {
           .setValue(this.plugin.settings.serverUrl)
           .onChange(async (value) => {
             this.plugin.settings.serverUrl = value;
+            await this.plugin.saveSettings();
+          })
+      );
+
+    new Setting(containerEl)
+      .setName("Daily Notes Folder")
+      .setDesc("Folder path for generated daily notes")
+      .addText((text) =>
+        text
+          .setPlaceholder("seCall/daily")
+          .setValue(this.plugin.settings.dailyNotesFolder)
+          .onChange(async (value) => {
+            this.plugin.settings.dailyNotesFolder = value;
             await this.plugin.saveSettings();
           })
       );

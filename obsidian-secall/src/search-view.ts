@@ -116,6 +116,14 @@ export class SearchView extends ItemView {
             cls: "secall-result-snippet",
           });
         }
+        const graphBtn = item.createEl("button", {
+          text: "Graph",
+          cls: "secall-graph-btn",
+        });
+        graphBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.plugin.openGraphView(`session:${r.session_id}`);
+        });
         item.addEventListener("click", () => this.openSession(r));
       }
     } catch (e) {

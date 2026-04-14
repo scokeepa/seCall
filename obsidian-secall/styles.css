@@ -52,3 +52,125 @@
 .secall-session-content {
   padding: 12px;
 }
+
+/* Daily View */
+.secall-daily-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.secall-daily-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.secall-daily-date {
+  font-weight: 600;
+  min-width: 120px;
+  text-align: center;
+}
+
+.secall-daily-stats {
+  font-size: 0.85em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.secall-daily-projects {
+  padding: 12px;
+}
+
+.secall-daily-project h4 {
+  margin: 8px 0 4px 0;
+}
+
+.secall-daily-session {
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.secall-daily-session:hover {
+  color: var(--text-accent);
+}
+
+.secall-daily-actions {
+  padding: 12px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+/* Graph View */
+.secall-graph-search {
+  padding: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.secall-graph-input {
+  flex: 1;
+  min-width: 150px;
+}
+
+.secall-graph-depth,
+.secall-graph-relation {
+  font-size: 0.85em;
+}
+
+.secall-graph-breadcrumb {
+  padding: 4px 12px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+
+.secall-graph-breadcrumb span {
+  cursor: pointer;
+}
+
+.secall-graph-breadcrumb span:hover {
+  color: var(--text-accent);
+}
+
+.secall-graph-results {
+  padding: 8px;
+}
+
+.secall-graph-node {
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.secall-graph-node:hover {
+  background: var(--background-modifier-hover);
+}
+
+.secall-graph-node-id {
+  font-weight: 500;
+}
+
+.secall-graph-node-relation {
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+.secall-graph-node-label {
+  font-size: 0.85em;
+  color: var(--text-faint);
+}
+
+.secall-graph-btn {
+  font-size: 0.75em;
+  padding: 2px 6px;
+  cursor: pointer;
+}
+
+.secall-graph-count {
+  padding: 8px;
+  font-size: 0.85em;
+  color: var(--text-muted);
+  border-top: 1px solid var(--background-modifier-border);
+}

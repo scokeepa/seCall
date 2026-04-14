@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use rusqlite::OptionalExtension;
 use serde::Serialize;
 
 use crate::error::Result;
@@ -94,6 +95,26 @@ impl Database {
         }
 
         Ok(results)
+    }
+
+    /// 노드의 type, label, meta 조회
+    pub fn get_node_metadata(
+        &self,
+        node_id: &str,
+    ) -> Result<Option<(String, String, Option<String>)>> {
+        let mut stmt = self
+            .conn()
+            .prepare("SELECT type, label, meta FROM graph_nodes WHERE id = ?1")?;
+        let result = stmt
+            .query_row([node_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })
+            .optional()?;
+        Ok(result)
     }
 
     /// 그래프 통계

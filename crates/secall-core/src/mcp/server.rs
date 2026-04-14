@@ -370,11 +370,16 @@ impl SeCallMcpServer {
         let results: Vec<serde_json::Value> = all_neighbors
             .iter()
             .map(|(id, rel, dir)| {
-                serde_json::json!({
+                let mut obj = serde_json::json!({
                     "node_id": id,
                     "relation": rel,
                     "direction": dir,
-                })
+                });
+                if let Ok(Some((node_type, label, _meta))) = db.get_node_metadata(id) {
+                    obj["node_type"] = serde_json::Value::String(node_type);
+                    obj["label"] = serde_json::Value::String(label);
+                }
+                obj
             })
             .collect();
 
@@ -384,6 +389,76 @@ impl SeCallMcpServer {
             "depth": depth,
             "results": results,
             "count": count,
+        }))
+    }
+
+    pub fn do_daily(&self, date: &str) -> anyhow::Result<serde_json::Value> {
+        let db = self.db.lock().map_err(|e| anyhow::anyhow!("DB lock: {e}"))?;
+
+        let sessions = db.get_sessions_for_date(date)?;
+        let total_sessions = sessions.len();
+
+        // 자동화/노이즈 세션 필터링: 최소 2턴, automated 제외
+        let meaningful: Vec<_> = sessions
+            .iter()
+            .filter(|(_, _, _, turns, _, stype)| *turns >= 2 && stype != "automated")
+            .collect();
+
+        // 노이즈 요약 필터링 (log.rs와 동일 기준)
+        let noisy_prefixes = [
+            "Analyze the following",
+            "<environment_context>",
+            "<local-command-caveat>",
+        ];
+
+        // 프로젝트별 그룹핑 + 노이즈 필터링 후 세션 ID 수집
+        let mut by_project: std::collections::BTreeMap<String, Vec<serde_json::Value>> =
+            std::collections::BTreeMap::new();
+        let mut filtered_ids: Vec<String> = Vec::new();
+
+        for (id, project, summary, turns, tools, _) in &meaningful {
+            let summary_text = summary
+                .as_deref()
+                .unwrap_or("")
+                .lines()
+                .next()
+                .unwrap_or("")
+                .chars()
+                .take(150)
+                .collect::<String>();
+
+            // 노이즈 요약 스킵
+            if noisy_prefixes.iter().any(|p| summary_text.starts_with(p)) {
+                continue;
+            }
+
+            filtered_ids.push(id.clone());
+            let proj = project.as_deref().unwrap_or("(기타)").to_string();
+            by_project.entry(proj).or_default().push(serde_json::json!({
+                "session_id": id,
+                "summary": summary_text,
+                "turn_count": turns,
+                "tools_used": tools.as_deref().unwrap_or("[]"),
+            }));
+        }
+
+        // 토픽 조회 — 필터링 후 세션만 대상
+        let topics = db.get_topics_for_sessions(&filtered_ids)?;
+        let topic_labels: Vec<String> = topics
+            .iter()
+            .filter_map(|(_, t)| t.strip_prefix("topic:").map(|s| s.to_string()))
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let filtered_sessions: usize = by_project.values().map(|v| v.len()).sum();
+
+        Ok(serde_json::json!({
+            "date": date,
+            "total_sessions": total_sessions,
+            "filtered_sessions": filtered_sessions,
+            "topics": topic_labels,
+            "projects": by_project,
         }))
     }
 }
