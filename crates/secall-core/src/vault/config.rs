@@ -153,7 +153,7 @@ impl Default for WikiConfig {
 pub struct GraphConfig {
     /// 시맨틱 엣지 추출 활성화 (기본: true)
     pub semantic: bool,
-    /// LLM backend: "ollama" (기본) | "anthropic" | "disabled" (규칙 기반만)
+    /// LLM backend: "ollama" (기본) | "anthropic" | "gemini" | "lmstudio" | "disabled" (규칙 기반만)
     pub semantic_backend: String,
     /// Ollama base URL (ollama backend)
     pub ollama_url: Option<String>,

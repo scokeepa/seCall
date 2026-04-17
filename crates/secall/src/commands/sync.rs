@@ -11,7 +11,7 @@ use crate::output::OutputFormat;
 use super::ingest::{ingest_sessions, IngestStats};
 use super::wiki;
 
-pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool) -> Result<()> {
+pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool, no_semantic: bool) -> Result<()> {
     let config = Config::load_or_default();
     let vault_git = VaultGit::new(&config.vault.path, &config.vault.branch);
 
@@ -85,7 +85,7 @@ pub async fn run(local_only: bool, dry_run: bool, no_wiki: bool) -> Result<()> {
 
         // === Phase 3: Ingest (로컬 새 세션 -> vault) ===
         eprintln!("Ingesting local sessions...");
-        let ingest_result = run_auto_ingest(&config, &db).await?;
+        let ingest_result = run_auto_ingest(&config, &db, no_semantic).await?;
         eprintln!(
             "  -> {} ingested, {} skipped, {} errors.",
             ingest_result.ingested, ingest_result.skipped, ingest_result.errors
@@ -253,7 +253,7 @@ fn reindex_vault(config: &Config, db: &Database) -> Result<ReindexResult> {
 }
 
 /// ingest --auto 로직 재사용
-async fn run_auto_ingest(config: &Config, db: &Database) -> Result<IngestStats> {
+async fn run_auto_ingest(config: &Config, db: &Database, no_semantic: bool) -> Result<IngestStats> {
     use secall_core::ingest::detect::{
         find_claude_sessions, find_codex_sessions, find_gemini_sessions,
     };
@@ -290,7 +290,7 @@ async fn run_auto_ingest(config: &Config, db: &Database) -> Result<IngestStats> 
         &vault,
         0,
         false,
-        false, // no_semantic: sync에서는 시맨틱 추출 활성화
+        no_semantic,
         &OutputFormat::Text,
     )
     .await

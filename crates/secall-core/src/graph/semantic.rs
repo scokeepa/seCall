@@ -45,6 +45,23 @@ struct OllamaMessage {
     content: String,
 }
 
+// ─── OpenAI-compat 응답 구조 ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+struct OpenAIResponse {
+    choices: Vec<OpenAIChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIChoice {
+    message: OpenAIMessage,
+}
+
+#[derive(Debug, Deserialize)]
+struct OpenAIMessage {
+    content: String,
+}
+
 // ─── Gemini 응답 구조 ──────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -201,6 +218,50 @@ async fn extract_with_ollama(
 
     let ollama_resp: OllamaResponse = resp.json().await?;
     parse_llm_edges(&ollama_resp.message.content, &fm.session_id)
+}
+
+// ─── OpenAI-compat API 호출 (LM Studio 등) ────────────────────────────────
+
+async fn extract_with_openai_compat(
+    fm: &SessionFrontmatter,
+    body: &str,
+    base_url: &str,
+    model: &str,
+) -> Result<Vec<GraphEdge>> {
+    let user_content = build_user_content(fm, body);
+
+    let request_body = serde_json::json!({
+        "model": model,
+        "temperature": 0.1,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_content}
+        ]
+    });
+
+    let url = format!("{}/v1/chat/completions", base_url.trim_end_matches('/'));
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()?;
+
+    let resp = client
+        .post(&url)
+        .header("content-type", "application/json")
+        .json(&request_body)
+        .send()
+        .await?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        anyhow::bail!("OpenAI-compat API error {}: {}", status, text);
+    }
+
+    let openai_resp: OpenAIResponse = resp.json().await?;
+    if openai_resp.choices.is_empty() {
+        anyhow::bail!("OpenAI-compat API returned empty choices");
+    }
+    parse_llm_edges(&openai_resp.choices[0].message.content, &fm.session_id)
 }
 
 // ─── Gemini API 호출 ──────────────────────────────────────────────────────
@@ -366,6 +427,14 @@ async fn extract_with_llm(
             extract_with_anthropic(fm, body, model).await
         }
         "gemini" => extract_with_gemini(fm, body, config).await,
+        "lmstudio" => {
+            let base_url = config
+                .ollama_url
+                .as_deref()
+                .unwrap_or("http://localhost:1234");
+            let model = config.ollama_model.as_deref().unwrap_or("gemma-4-e4b-it");
+            extract_with_openai_compat(fm, body, base_url, model).await
+        }
         _ => anyhow::bail!("unknown semantic_backend: {}", config.semantic_backend),
     }
 }

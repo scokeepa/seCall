@@ -192,6 +192,10 @@ enum Commands {
         /// Skip incremental wiki generation for new sessions
         #[arg(long)]
         no_wiki: bool,
+
+        /// Skip semantic edge extraction during ingest
+        #[arg(long)]
+        no_semantic: bool,
     },
 
     /// Rebuild DB index from vault markdown files
@@ -319,7 +323,7 @@ enum GraphAction {
         /// 처리할 최대 세션 수 (기본: 전체)
         #[arg(long)]
         limit: Option<usize>,
-        /// LLM 백엔드 오버라이드: "ollama" | "gemini" | "anthropic" | "disabled"
+        /// LLM 백엔드 오버라이드: "ollama" | "gemini" | "anthropic" | "lmstudio" | "disabled"
         #[arg(long)]
         backend: Option<String>,
         /// API base URL (예: http://localhost:11434, Ollama 전용)
@@ -457,8 +461,9 @@ async fn main() -> anyhow::Result<()> {
             local_only,
             dry_run,
             no_wiki,
+            no_semantic,
         } => {
-            commands::sync::run(local_only, dry_run, no_wiki).await?;
+            commands::sync::run(local_only, dry_run, no_wiki, no_semantic).await?;
         }
         Commands::Reindex { from_vault } => {
             commands::reindex::run(from_vault)?;
