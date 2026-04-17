@@ -122,7 +122,7 @@ vault/
 
 - **노드 타입**: session, project, agent, tool — frontmatter에서 자동 추출
 - **규칙 기반 엣지**: `belongs_to`, `by_agent`, `uses_tool`, `same_project`, `same_day` (LLM 불필요)
-- **시맨틱 엣지** (Gemini/Ollama): `fixes_bug`, `modifies_file`, `introduces_tech`, `discusses_topic` — LLM이 세션 내용을 분석하여 추출
+- **시맨틱 엣지** (Gemini/Ollama/LM Studio): `fixes_bug`, `modifies_file`, `introduces_tech`, `discusses_topic` — LLM이 세션 내용을 분석하여 추출
 - **증분 빌드**: 신규 세션만 노드 추가, 관계 엣지는 전체 재계산으로 정확성 보장
 - **MCP 도구**: `graph_query` — AI 에이전트가 세션 간 관계를 탐색 (BFS, 최대 3홉)
 
@@ -423,7 +423,7 @@ secall config path
 | `output.timezone` | 타임존 (IANA) | `UTC` |
 | `ingest.classification.default` | 분류 규칙 미매칭 시 기본 session_type | `interactive` |
 | `ingest.classification.skip_embed_types` | 임베딩을 스킵할 session_type 목록 | `[]` |
-| `graph.semantic_backend` | 시맨틱 엣지 추출 백엔드 (`gemini` / `ollama` / `none`) | `none` |
+| `graph.semantic_backend` | 시맨틱 엣지 추출 백엔드 (`gemini` / `ollama` / `lmstudio` / `none`) | `none` |
 | `graph.gemini_model` | Gemini 모델 이름 | `gemini-2.5-flash` |
 | `wiki.default_backend` | 위키 생성 백엔드 (`claude` / `codex` / `ollama` / `lmstudio` / `gemini`) | `claude` |
 | `wiki.backends.<name>.api_url` | 백엔드 API 엔드포인트 | (기본값 사용) |
@@ -441,7 +441,7 @@ secall config path
 |---|---|
 | `secall init` | 대화형 온보딩 (vault, 토크나이저, 임베딩 설정) |
 | `secall ingest [path] --auto` | 에이전트 세션 파싱 및 인덱싱 |
-| `secall sync [--local-only] [--no-wiki]` | 전체 동기화: git pull → reindex → ingest → wiki → graph → git push |
+| `secall sync [--local-only] [--no-wiki] [--no-semantic]` | 전체 동기화: git pull → reindex → ingest → wiki → graph → git push |
 | `secall recall <query>` | 하이브리드 검색 (기본: automated 세션 제외) |
 | `secall recall <query> --include-automated` | automated 세션 포함하여 검색 |
 | `secall get <id> [--full]` | 세션 상세 조회 |
@@ -568,6 +568,7 @@ Claude Code 설정 (`~/.claude/settings.json`)에 추가:
 
 | 날짜 | 버전 | 변경사항 |
 |------|------|---------|
+| 2026-04-17 | v0.3.3 | LM Studio (OpenAI 호환) 시맨틱 백엔드 추가 (`--backend lmstudio`, #35), `secall sync --no-semantic` 플래그 추가 — GPU 메모리 경합 방지 (#34), Gemini Web ZIP ingest 지원 (#31), `graph semantic` CLI 백엔드 설정 옵션 (#30) |
 | 2026-04-15 | v0.3.2 | Gemini API 백엔드 (시맨틱 그래프 + 일기 생성), Codex wiki 백엔드 (PR #29), REST API 서버 (`secall serve`), Obsidian 플러그인 (검색/데일리/그래프 뷰), 작업 일기 (`secall log`), 시맨틱 엣지 (`fixes_bug`, `modifies_file`, `introduces_tech`, `discusses_topic`), BM25-only 모드 시 graph semantic 자동 비활성화 (#25) |
 | 2026-04-12 | v0.3.1 | `secall lint --fix` stale DB 정리 (#15), `wiki_search` created/updated 필드 (#13), P20 테스트 커버리지 강화 (+16 tests) |
 | 2026-04-12 | v0.3.0 | 세션 분류 (regex 규칙, `secall classify`), 위키 플러그인 백엔드 (Ollama, LM Studio), `--include-automated` 플래그 |
